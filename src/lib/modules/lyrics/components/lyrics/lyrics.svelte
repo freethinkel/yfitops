@@ -78,44 +78,44 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 0.375rem;
     overflow: auto;
-    padding: 4px 0;
+    padding: 0.25rem 0;
   }
   .line {
     appearance: none;
     border: none;
     background: none;
-    padding: 2px 4px;
-    margin: 0 -4px;
+    padding: 0.125rem 0.25rem;
+    margin: 0 -0.25rem;
     border-radius: var(--border-radius);
     text-align: left;
     font-family: inherit;
-    font-size: 1rem;
+    font-size: 0.94rem;
     font-weight: 600;
     line-height: 1.25;
-    color: var(--color-text-100);
+    color: var(--color-text);
   }
   .synced .line {
-    color: var(--color-text-60);
+    color: oklch(from var(--color-text) l c h / 0.6);
     transition: var(--transition);
     cursor: pointer;
 
     &:hover {
-      background: var(--color-surface-10);
-      color: var(--color-text-100);
+      background: oklch(from var(--color-text) l c h / 0.04);
+      color: var(--color-text);
     }
 
     &.passed {
-      color: var(--color-surface-20);
+      color: oklch(from var(--color-text) l c h / 0.12);
     }
     &.active {
-      color: var(--color-accent-100);
+      color: var(--color-accent);
     }
   }
   .empty {
     margin: 0;
-    color: var(--color-text-60);
-    font-size: 0.9rem;
+    color: oklch(from var(--color-text) l c h / 0.6);
+    font-size: 0.84rem;
   }
 </style>

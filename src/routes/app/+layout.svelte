@@ -55,6 +55,8 @@
       oncollapse={appModel.closeDetails}
     >
       <div class="details">
+        <!-- absolute so the panel's own scrolling content keeps the full height -->
+        <div data-tauri-drag-region class="drag"></div>
         {#if $detailsView === "queue"}
           <Queue />
         {:else}
@@ -76,27 +78,42 @@
     flex: 1;
     min-width: 0;
     position: relative;
-    background: var(--color-background-100);
-    border-left: 1px solid var(--color-surface-20);
+    background: var(--color-background);
+    border-left: 1px solid oklch(from var(--color-text) l c h / 0.12);
   }
   .outlet {
     flex: 1;
     min-height: 0;
     overflow: auto;
-    /* room for the floating player, so the last track stays reachable */
-    padding-bottom: 90px;
+    padding-bottom: 5.625rem;
+  }
+  .drag {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2.25rem;
+    z-index: 10;
+    pointer-events: auto;
   }
   .details {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
-    border-left: 1px solid var(--color-surface-20);
+    border-left: 1px solid oklch(from var(--color-text) l c h / 0.12);
   }
   .player {
     position: absolute;
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
+    left: 0.625rem;
+    right: 0.625rem;
+    bottom: 0.625rem;
     z-index: 100;
+    display: flex;
+    justify-content: center;
+
+    & > :global(*) {
+      max-width: 700px;
+    }
   }
 </style>

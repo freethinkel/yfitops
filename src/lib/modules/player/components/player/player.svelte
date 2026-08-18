@@ -13,18 +13,18 @@
   // mixed in CSS so it follows the palette the OS is currently asking for
   const color = $derived(
     $trackColor === "transparent"
-      ? "var(--color-background-100)"
-      : `color-mix(in srgb, ${$trackColor} 50%, var(--color-background-100))`,
+      ? "var(--color-background)"
+      : `color-mix(in srgb, ${$trackColor} 50%, var(--color-background))`,
   );
 </script>
 
 <div class="wrapper" style:--track-color={color}>
   <div class="left">
-    <TrackInfo />
+    <Controls />
   </div>
   <div class="center">
-    <Controls />
-    <Progress thumbBorderColor={color} />
+    <TrackInfo />
+    <Progress />
   </div>
   <div class="right">
     <button
@@ -55,32 +55,33 @@
     display: flex;
     align-items: center;
     width: 100%;
-    border: 1px solid var(--color-surface-20);
+    border: 1px solid oklch(from var(--color-text) l c h / 0.12);
     border-radius: 999px;
     box-shadow:
       var(--shadow-1),
       0 12px 32px -10px color-mix(in srgb, var(--track-color) 70%, transparent);
     /* a smaller inset and the pill's own curve would clip the artwork */
-    padding: 4px 14px;
+    padding: 0.25rem 0.875rem;
     position: relative;
     overflow: hidden;
+    gap: 0.281rem;
 
     &::before {
       content: "";
       position: absolute;
       inset: 0;
-      /* background-color: var(--track-color, var(--color-background-100)); */
       z-index: -2;
     }
     &::after {
       content: "";
       position: absolute;
       inset: 0;
-      /* background-color: var(--color-background-100); */
+      /* background-color: var(--color-background); */
       opacity: 0.2;
       z-index: -1;
     }
 
+    backdrop-filter: blur(10px);
     /* macOS/iOS 26+ in the Tauri webview: the system material replaces the
        painted background, the album color stays as a tint on top of it */
     @supports (-apple-visual-effect: -apple-system-glass-material) {
@@ -89,6 +90,7 @@
       border-color: transparent;
       /* the material brings its own edge and shadow — ours spilled past it */
       box-shadow: none;
+      backdrop-filter: none;
 
       &::before {
         z-index: 0;
@@ -111,30 +113,57 @@
   .center,
   .right {
     position: relative;
-    z-index: 1;
+  }
+  .left,
+  .right {
+    width: 170px;
   }
   .left {
     display: flex;
     align-items: center;
-    flex: 1;
     min-width: 0;
+  }
+  /**
+   * The pill is translucent: a gradient painted over the track info would show
+   * the glass through it. So the info is masked away instead of covered.
+   * mask-image cannot be transitioned, but mask-position can — the mask is cut
+   * twice as tall and slid from its opaque half to its fading one.
+   */
+  .center :global(.track_info__root) {
+    /* the mask is twice as tall: its upper half is fully opaque, so at rest
+       nothing is masked at all, and the lower half holds the fade */
+    mask-image: linear-gradient(
+      to top,
+      transparent 0%,
+      transparent 30%,
+      black 48%,
+      black 100%
+    );
+    mask-size: 100% 200%;
+    mask-position: 0% 0%;
+    transition: mask-position 0.1s linear;
+  }
+  /* the fade belongs to the slider: it only gets in the way when the times
+     next to it come up, not whenever the pointer crosses the capsule */
+  .center:has(:global(.progress__root):hover) :global(.track_info__root),
+  .center:has(:global(.progress__root.dragging)) :global(.track_info__root) {
+    mask-position: 0% 100%;
   }
   .center {
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    gap: 2px;
+    gap: 0.188rem;
     flex: 1;
     min-width: 0;
   }
   .right {
-    flex: 1;
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 2px;
-    padding-right: 6px;
+    gap: 0.125rem;
+    padding-right: 0.375rem;
   }
   .right button {
     appearance: none;
@@ -146,16 +175,17 @@
     height: 30px;
     width: 30px;
     border-radius: var(--border-radius);
-    color: var(--color-text-60);
+    color: oklch(from var(--color-text) l c h / 0.6);
     cursor: pointer;
     transition: var(--transition);
 
     &:hover {
-      background: var(--color-surface-10);
+      background: oklch(from var(--color-text) l c h / 0.04);
     }
+
     &.active {
-      color: var(--color-text-100);
-      background: var(--color-surface-20);
+      color: var(--color-accent);
+      background: oklch(from var(--color-accent) l c h / 0.1);
     }
   }
 </style>

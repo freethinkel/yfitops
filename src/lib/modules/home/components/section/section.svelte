@@ -33,18 +33,18 @@
 
 <style>
   section {
-    padding: 10px 0;
+    padding: 0.625rem 0;
   }
   h2 {
-    margin: 0 0 4px;
-    padding: 0 16px;
-    font-size: 1.1rem;
+    margin: 0 0 0.25rem;
+    padding: 0 1rem;
+    font-size: 1.03rem;
   }
   .row {
     display: flex;
-    gap: 4px;
+    gap: 0.25rem;
     overflow-x: auto;
-    padding: 0 10px;
+    padding: 0 0.625rem;
     scrollbar-width: none;
 
     &::-webkit-scrollbar {
@@ -54,9 +54,9 @@
   .skeleton {
     width: 140px;
     flex-shrink: 0;
-    padding: 6px;
+    padding: 0.375rem;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.5rem;
   }
 </style>

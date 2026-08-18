@@ -16,20 +16,20 @@
   .btn {
     justify-content: flex-start;
     display: flex;
-    padding: 4px;
+    padding: 0.25rem;
     align-items: center;
-    gap: 6px;
+    gap: 0.375rem;
     border-radius: var(--border-radius);
-    font-size: 0.9rem;
+    font-size: 0.84rem;
     font-weight: 600;
     width: 100%;
     text-align: left;
     text-decoration: none;
-    color: var(--color-text-100);
+    color: var(--color-text);
 
     &:hover,
     &.active {
-      background: var(--color-surface-10);
+      background: oklch(from var(--color-text) l c h / 0.04);
     }
   }
   span {

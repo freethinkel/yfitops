@@ -2,7 +2,6 @@
   import { goto } from "$app/navigation";
   import { Section } from "$lib/modules/home/components/section";
   import { TrackList } from "$lib/modules/playlist/components/track-list";
-  import { TrackListSkeleton } from "$lib/modules/playlist/components/track-list-skeleton";
   import { Card } from "$lib/shared/components/card";
   import { Icon } from "$lib/shared/components/icon";
   import { routeForLink } from "$lib/shared/helpers/spotify-link";
@@ -98,29 +97,29 @@
     {/if}
   {/if}
 {:else if $isPending}
-  <TrackListSkeleton />
+  <TrackList tracks={undefined} />
 {/if}
 
 <style>
   .tracks_title {
-    margin: 10px 0 0;
-    padding: 0 16px;
-    font-size: 1.1rem;
+    margin: 0.625rem 0 0;
+    padding: 0 1rem;
+    font-size: 1.03rem;
   }
   .search {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin: 10px;
-    padding: 0 10px;
+    gap: 0.5rem;
+    margin: 0.625rem;
+    padding: 0 0.625rem;
     height: 34px;
     border-radius: var(--border-radius);
-    background: var(--color-surface-10);
-    border: 1px solid var(--color-surface-20);
-    color: var(--color-text-60);
+    background: oklch(from var(--color-text) l c h / 0.04);
+    border: 1px solid oklch(from var(--color-text) l c h / 0.12);
+    color: oklch(from var(--color-text) l c h / 0.6);
 
     &:focus-within {
-      border-color: var(--color-accent-100);
+      border-color: var(--color-accent);
     }
   }
   input {
@@ -130,8 +129,8 @@
     border: none;
     background: none;
     outline: none;
-    font-size: 1rem;
-    color: var(--color-text-100);
+    font-size: 0.94rem;
+    color: var(--color-text);
 
     &::-webkit-search-cancel-button {
       appearance: none;
@@ -139,8 +138,8 @@
   }
   .empty {
     margin: 0;
-    padding: 20px;
+    padding: 1.25rem;
     text-align: center;
-    color: var(--color-text-60);
+    color: oklch(from var(--color-text) l c h / 0.6);
   }
 </style>

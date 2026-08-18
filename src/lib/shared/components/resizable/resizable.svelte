@@ -26,6 +26,16 @@
 
   let isDragging = $state(false);
 
+  /** At a limit the cursor says which way is still possible. */
+  const cursor = $derived.by(() => {
+    const grow = side === "left" ? "e-resize" : "w-resize";
+    const shrink = side === "left" ? "w-resize" : "e-resize";
+
+    if (width >= maxWidth) return shrink;
+    if (width <= minWidth && collapseAt === undefined) return grow;
+    return "col-resize";
+  });
+
   const stop = () => {
     isDragging = false;
     document.body.style.cursor = "";
@@ -48,10 +58,16 @@
     onresize(Math.min(maxWidth, Math.max(minWidth, raw)));
   };
 
+  // the body cursor is set once on mousedown and would otherwise stay whatever
+  // it was when the drag started, hiding the limits
+  $effect(() => {
+    if (isDragging) document.body.style.cursor = cursor;
+  });
+
   const onMouseDown = (event: MouseEvent) => {
     event.preventDefault();
     isDragging = true;
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = cursor;
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", stop);
   };
@@ -63,6 +79,7 @@
   <div
     class="drag drag__{side}"
     class:active={isDragging}
+    style:cursor
     onmousedown={onMouseDown}
   ></div>
 </div>
@@ -78,9 +95,7 @@
     top: 0;
     bottom: 0;
     width: 6px;
-    background: var(--color-accent-20);
     opacity: 0;
-    cursor: col-resize;
     transition: var(--transition);
     z-index: 1000;
 
@@ -98,16 +113,16 @@
       opacity: 1;
     }
 
+    /* just the edge, lit up — no grabber */
     &::before {
       content: "";
       position: absolute;
-      height: 20px;
-      top: 50%;
+      top: 0;
+      bottom: 0;
       left: 50%;
-      transform: translate(-50%, -50%);
-      width: 3px;
-      border-radius: 10em;
-      background: var(--color-accent-100);
+      width: 1px;
+      transform: translateX(-50%);
+      background: var(--color-accent);
     }
   }
 </style>

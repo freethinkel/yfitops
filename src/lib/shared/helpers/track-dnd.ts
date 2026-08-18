@@ -22,9 +22,9 @@ const previewOf = (track: SpotifyApi.TrackObjectFull) => {
     max-width: 260px;
     padding: 6px 10px 6px 6px;
     border-radius: 999px;
-    background: var(--color-background-100);
+    background: var(--color-background);
     box-shadow: var(--shadow-1);
-    color: var(--color-text-100);
+    color: var(--color-text);
     font: 500 0.85rem system-ui, sans-serif;
     white-space: nowrap;
   `;

@@ -148,46 +148,54 @@
     transition: var(--transition);
 
     &.accepting {
-      border-color: var(--color-surface-20);
+      border-color: oklch(from var(--color-text) l c h / 0.12);
     }
+
+    --gutter: 0.625rem;
 
     display: flex;
     flex-direction: column;
     height: 100%;
     width: 100%;
-    padding: 10px;
+    /* the padding lives on the sections, so the list's scrollbar sits at the
+       panel's edge instead of floating inside a gutter */
+    padding: var(--gutter) 0;
     overflow: hidden;
   }
   h2 {
-    margin: 8px 0 6px;
-    font-size: 0.75rem;
+    margin: 0.5rem 0 0.375rem;
+    padding: 0 var(--gutter);
+    font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--color-text-60);
+    color: oklch(from var(--color-text) l c h / 0.6);
   }
   .list {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    padding: 0 var(--gutter);
+    scrollbar-gutter: stable;
   }
   .row.track {
     cursor: pointer;
 
     &:hover {
-      background: var(--color-surface-10);
+      background: oklch(from var(--color-text) l c h / 0.04);
     }
   }
   .row {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px;
+    gap: 0.5rem;
+    padding: 0.25rem;
     border-radius: var(--border-radius);
     min-width: 0;
 
     &.current {
-      background: var(--color-surface-10);
+      margin: 0 var(--gutter);
+      background: oklch(from var(--color-text) l c h / 0.04);
     }
     &.moving {
       opacity: 0.4;
@@ -198,11 +206,11 @@
     &.gap_after::after {
       content: "";
       position: absolute;
-      left: 4px;
-      right: 4px;
+      left: 0.25rem;
+      right: 0.25rem;
       height: 2px;
       border-radius: 2px;
-      background: var(--color-accent-100);
+      background: var(--color-accent);
     }
     &.gap_before::before {
       top: -1px;
@@ -215,16 +223,16 @@
     appearance: none;
     border: none;
     background: none;
-    padding: 0 4px;
-    font-size: 1rem;
+    padding: 0 0.25rem;
+    font-size: 0.94rem;
     line-height: 1;
-    color: var(--color-text-60);
+    color: oklch(from var(--color-text) l c h / 0.6);
     cursor: pointer;
     opacity: 0;
     transition: var(--transition);
 
     &:hover {
-      color: var(--color-text-100);
+      color: var(--color-text);
     }
   }
   .row:hover .remove {
@@ -242,16 +250,16 @@
     text-overflow: ellipsis;
   }
   .name {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 500;
   }
   .artists {
-    font-size: 0.75rem;
-    color: var(--color-text-60);
+    font-size: 0.7rem;
+    color: oklch(from var(--color-text) l c h / 0.6);
   }
   time {
-    font-size: 0.75rem;
-    color: var(--color-text-60);
+    font-size: 0.7rem;
+    color: oklch(from var(--color-text) l c h / 0.6);
     font-variant-numeric: tabular-nums;
   }
   .error {
@@ -259,7 +267,7 @@
   }
   .empty {
     margin: 0;
-    font-size: 0.85rem;
-    color: var(--color-text-60);
+    font-size: 0.8rem;
+    color: oklch(from var(--color-text) l c h / 0.6);
   }
 </style>

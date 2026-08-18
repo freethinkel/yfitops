@@ -5,11 +5,13 @@
     url?: string;
     size?: number;
     icon?: string;
+    /** Takes the container's width and stays square — for resizable panels. */
+    fill?: boolean;
   }
-  const { url = "", size = 40, icon = "music" }: Props = $props();
+  const { url = "", size = 40, icon = "music", fill = false }: Props = $props();
 </script>
 
-<div class="wrapper" style:--size="{size}px">
+<div class="wrapper" class:fill style:--size="{size}px">
   {#if url}
     <img src={url} alt="" />
   {/if}
@@ -17,18 +19,23 @@
 </div>
 
 <style>
+  .wrapper.fill {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    aspect-ratio: 1;
+  }
   .wrapper {
     display: flex;
     position: relative;
-    /* keeps the img's z-index inside the cover, off sticky headers above it */
     isolation: isolate;
     width: var(--size);
     min-width: var(--size);
     height: var(--size);
     border-radius: var(--border-radius);
-    border: 1px solid var(--color-surface-10);
+    border: 1px solid oklch(from var(--color-text) l c h / 0.08);
     overflow: hidden;
-    background: var(--color-surface-10);
+    background: oklch(from var(--color-text) l c h / 0.04);
 
     & :global(div.icon) {
       display: flex;
@@ -38,7 +45,7 @@
       height: 100%;
       align-items: center;
       justify-content: center;
-      color: var(--color-text-60);
+      color: oklch(from var(--color-text) l c h / 0.4);
     }
   }
   img {

@@ -7,13 +7,13 @@ export const THEMES: Theme[] = [
     name: "Base",
     light: {
       accent: "#00D560",
-      background: "#F4EBDF",
+      background: "#FFF",
       text: "#100F13",
       error: "#FF6868",
     },
     dark: {
       accent: "#00D560",
-      background: "#100F13",
+      background: "#000",
       text: "#F4EBDF",
       error: "#FF6868",
     },
@@ -83,23 +83,6 @@ export const THEMES: Theme[] = [
     },
   },
   {
-    id: "matrix",
-    name: "Matrix",
-    // dark on both sides, exactly as in the Flutter theme
-    light: {
-      accent: "#5BC746",
-      background: "#010600",
-      text: "#40E740",
-      error: "#337027",
-    },
-    dark: {
-      accent: "#5BC746",
-      background: "#010600",
-      text: "#40E740",
-      error: "#337027",
-    },
-  },
-  {
     id: "sky",
     name: "Sky",
     light: {
@@ -119,45 +102,16 @@ export const THEMES: Theme[] = [
 
 export const DEFAULT_THEME = THEMES[0];
 
-export const BORDER_RADIUS = "10px";
-export const TRANSITION = "0.1s ease-in-out";
-
 /**
- * Three stacked layers instead of one: a tight contact shadow, a soft middle
- * and a wide ambient one.
- */
-export const SHADOW_1 = [
-  "0 1px 2px rgba(0, 0, 0, 0.028)",
-  "0 3.4px 6.7px rgba(0, 0, 0, 0.042)",
-  "0 15px 30px rgba(0, 0, 0, 0.07)",
-].join(", ");
-
-// ponytail: alpha variants via color-mix instead of a color lib
-const alpha = (color: string, amount: number) =>
-  `color-mix(in srgb, ${color} ${amount * 100}%, transparent)`;
-
-/**
- * Surface and border have no fields of their own: a divider and a muted caption
- * are the text color, only quieter.
+ * Only the four real colors are emitted. Everything derived from them — muted
+ * text, dividers, surfaces — is a relative oklch of those, declared once in
+ * common.css instead of being spelled out per theme.
  */
 export const paletteToStyles = (palette: Theme["light"]) =>
-  `--color-accent-100: ${palette.accent};
-   --color-accent-20: ${alpha(palette.accent, 0.2)};
-   --color-accent-10: ${alpha(palette.accent, 0.1)};
-   --color-background-100: ${palette.background};
-   --color-background-20: ${alpha(palette.background, 0.2)};
-   --color-text-100: ${palette.text};
-   --color-text-80: ${alpha(palette.text, 0.8)};
-   --color-text-60: ${alpha(palette.text, 0.6)};
-   --color-surface-100: ${palette.text};
-   --color-surface-80: ${alpha(palette.text, 0.8)};
-   --color-surface-20: ${alpha(palette.text, 0.12)};
-   --color-surface-10: ${alpha(palette.text, 0.04)};
-   --color-error: ${palette.error};
-
-   --border-radius: ${BORDER_RADIUS};
-   --transition: ${TRANSITION};
-   --shadow-1: ${SHADOW_1};`;
+  `--color-accent: ${palette.accent};
+   --color-background: ${palette.background};
+   --color-text: ${palette.text};
+   --color-error: ${palette.error};`;
 
 /** Both palettes ship at once so the OS setting switches them without a redraw. */
 export const themeToStyles = (theme: Theme) =>

@@ -30,19 +30,74 @@ export const nextTrack = () => {
  * Shuffle and repeat live in the playback state the SDK reports, but only the
  * Web API can change them.
  */
-export const toggleShuffle = async () => {
+type ToggleKey = "shuffle" | "repeat_mode";
+
+/**
+ * Values the user has chosen but the server has not confirmed yet. Without
+ * them a state event arriving mid-flight would flash the old setting back.
+ */
+const pending = new Map<ToggleKey, boolean | number>();
+
+/**
+ * Overlays the unconfirmed choices on an incoming state, and forgets each one
+ * as soon as the server reports the same value.
+ */
+const withPending = (state: Spotify.PlaybackState) => {
+  if (!pending.size) return state;
+
+  const merged = { ...state } as Record<string, unknown>;
+
+  for (const [key, value] of pending) {
+    if (state[key] === value) pending.delete(key);
+    else merged[key] = value;
+  }
+
+  return merged as unknown as Spotify.PlaybackState;
+};
+
+/**
+ * Optimistic: the SDK reports these only after the server has applied them,
+ * which is a visible lag on a button that should feel instant.
+ */
+const patchState = (patch: Partial<Spotify.PlaybackState>) => {
+  const state = $playerState.get();
+  if (state) $playerState.set({ ...state, ...patch });
+};
+
+/** Rapid clicks must reach the server in the order they were made. */
+let toggleChain: Promise<unknown> = Promise.resolve();
+
+const sendToggle = <T>(key: ToggleKey, value: boolean | number, send: () => Promise<T>) => {
+  pending.set(key, value);
+  patchState({ [key]: value } as Partial<Spotify.PlaybackState>);
+
+  toggleChain = toggleChain.then(send).catch((err) => {
+    pending.delete(key);
+    console.error(`player ${key}:`, err);
+  });
+
+  return toggleChain;
+};
+
+export const toggleShuffle = () => {
   const state = $playerState.get();
   if (!state) return;
 
-  await spotifyApi.setShuffle(!state.shuffle, { device_id: deviceId });
+  const shuffle = !state.shuffle;
+
+  return sendToggle("shuffle", shuffle, () =>
+    spotifyApi.setShuffle(shuffle, { device_id: deviceId }),
+  );
 };
 
 /** off → context → track → off, the order the native clients cycle through. */
-export const cycleRepeat = async () => {
+export const cycleRepeat = () => {
   const mode = $playerState.get()?.repeat_mode ?? 0;
   const next = (["context", "track", "off"] as const)[mode];
 
-  await spotifyApi.setRepeat(next, { device_id: deviceId });
+  return sendToggle("repeat_mode", (mode + 1) % 3, () =>
+    spotifyApi.setRepeat(next, { device_id: deviceId }),
+  );
 };
 
 export const prevTrack = () => player?.previousTrack();
@@ -57,6 +112,24 @@ export const seek = (position: number) => {
 export const play = (uris: string[]) => spotifyApi.play({ uris, device_id: deviceId });
 
 /** Plays a whole playlist, album or artist by its uri. */
+/** Same for a bare list of tracks — liked songs have no context uri. */
+export const playShuffled = async (uris: string[]) => {
+  patchState({ shuffle: true });
+  pending.set("shuffle", true);
+
+  await spotifyApi.setShuffle(true, { device_id: deviceId });
+  await play(uris);
+};
+
+/** Starts a playlist or album shuffled, the way the native clients do. */
+export const shuffleContext = async (uri: string) => {
+  patchState({ shuffle: true });
+  pending.set("shuffle", true);
+
+  await spotifyApi.setShuffle(true, { device_id: deviceId });
+  await playContext(uri);
+};
+
 export const playContext = (uri: string) =>
   spotifyApi.play({ context_uri: uri, device_id: deviceId });
 
@@ -339,7 +412,7 @@ const addListeners = (player: Spotify.Player) => {
 
   // ponytail: position is ticked locally between SDK events, each event resyncs it
   player.addListener("player_state_changed", (event) => {
-    $playerState.set(event);
+    $playerState.set(withPending(event));
     updateTrackColor(event);
 
     if (tickTimer) clearInterval(tickTimer);

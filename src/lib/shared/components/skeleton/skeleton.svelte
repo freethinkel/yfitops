@@ -10,7 +10,7 @@
 
 <style>
   .skeleton {
-    background: var(--color-surface-10);
+    background: oklch(from var(--color-text) l c h / 0.04);
     border-radius: var(--border-radius);
     position: relative;
     overflow: hidden;
@@ -23,7 +23,7 @@
       background: linear-gradient(
         to right,
         transparent,
-        var(--color-surface-10),
+        oklch(from var(--color-text) l c h / 0.04),
         transparent
       );
     }

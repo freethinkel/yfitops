@@ -13,24 +13,24 @@
     aria-pressed={$playerState?.shuffle ?? false}
     onclick={() => playerModel.toggleShuffle()}
   >
-    <Icon name="shuffle" size={16} />
+    <Icon name="shuffle" size={20} />
   </button>
   <button
     aria-label="Previous track"
     onclick={() => playerModel.prevTrack()}
     disabled={!$playerState?.track_window.previous_tracks.length}
   >
-    <Icon name="previous-track" />
+    <Icon name="previous-track" size={24} />
   </button>
   <button
     aria-label="Play/pause"
     class="play"
     onclick={() => playerModel.togglePlaypause()}
   >
-    <Icon name={$playerState?.paused ?? true ? "play" : "pause"} />
+    <Icon name={($playerState?.paused ?? true) ? "play" : "pause"} size={28} />
   </button>
   <button aria-label="Next track" onclick={() => playerModel.nextTrack()}>
-    <Icon name="next-track" />
+    <Icon name="next-track" size={24} />
   </button>
 
   <button
@@ -39,7 +39,10 @@
     aria-label="Повтор"
     onclick={() => playerModel.cycleRepeat()}
   >
-    <Icon name={$playerState?.repeat_mode === 2 ? "repeat-one" : "repeat"} size={16} />
+    <Icon
+      name={$playerState?.repeat_mode === 2 ? "repeat-one" : "repeat"}
+      size={20}
+    />
   </button>
 </div>
 
@@ -47,10 +50,16 @@
   .controls {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 6px;
+    gap: 0.375rem;
+    color: oklch(from var(--color-text) l c h / 0.8);
+    will-change: transform;
 
-    color: var(--color-text-80);
+    & button {
+      transition: transform var(--spring-transition);
+      &:active {
+        transform: scale(0.9);
+      }
+    }
 
     & button {
       --size: 32px;
@@ -71,11 +80,28 @@
       }
 
       &.play {
-        color: var(--color-text-100);
+        color: var(--color-text);
       }
 
       &:hover:not(:disabled) {
-        color: var(--color-text-100);
+        color: var(--color-text);
+      }
+    }
+  }
+
+  button.mode {
+    --size: 24px;
+    border-radius: 999px;
+
+    & :global(.icon) {
+      margin-top: -0.0312rem;
+    }
+
+    &.active {
+      background-color: oklch(from var(--color-accent) l c h / 10%);
+
+      & :global(.icon) {
+        color: var(--color-accent);
       }
     }
   }

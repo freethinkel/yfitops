@@ -1,107 +1,163 @@
 <script lang="ts">
   interface Props {
     value?: number;
-    thumbBorderColor?: string | null;
+    label?: string;
     onchange?: (value: number) => void;
     ondragging?: (dragging: boolean) => void;
   }
-  const {
-    value = 0,
-    thumbBorderColor = null,
-    onchange,
-    ondragging,
-  }: Props = $props();
+  const { value = 0, label = "Seek", onchange, ondragging }: Props = $props();
 
-  let wrapperEl = $state<HTMLDivElement>();
+  const STEP = 0.01;
+  const BIG_STEP = 0.05;
+
+  const clamp = (value: number) => Math.min(1, Math.max(0, value));
+
+  let trackEl = $state<HTMLDivElement>();
   let isDragging = $state(false);
-  let draggedPosition = $state(0);
+  let draggedValue = $state(0);
 
-  const position = $derived(isDragging ? draggedPosition : value);
+  const position = $derived(clamp(isDragging ? draggedValue : value));
 
-  const onMousemove = (event: MouseEvent) => {
-    event.preventDefault();
-    const rect = wrapperEl!.getBoundingClientRect();
-    draggedPosition = Math.min(
-      1,
-      Math.max(0, (event.pageX - rect.left) / rect.width),
-    );
+  const valueAt = (clientX: number) => {
+    const rect = trackEl!.getBoundingClientRect();
+    return rect.width ? clamp((clientX - rect.left) / rect.width) : 0;
   };
 
-  const onMouseup = () => {
-    document.removeEventListener("mousemove", onMousemove);
-    document.removeEventListener("mouseup", onMouseup);
+  /**
+   * Listening on the window rather than capturing the pointer: WebKit drops
+   * captured moves often enough that the thumb stops following the cursor.
+   */
+  const onPointerMove = (event: PointerEvent) => {
+    draggedValue = valueAt(event.clientX);
+  };
 
-    onchange?.(draggedPosition);
+  const onPointerUp = () => {
+    removeEventListener("pointermove", onPointerMove);
+    removeEventListener("pointerup", onPointerUp);
+    removeEventListener("pointercancel", onPointerUp);
+
     isDragging = false;
     ondragging?.(false);
+    onchange?.(draggedValue);
   };
 
-  const onMousedown = (event: MouseEvent) => {
+  const onPointerDown = (event: PointerEvent) => {
+    if (event.button !== 0) return;
+
     event.preventDefault();
-    draggedPosition = value;
+
+    // pressing anywhere on the track seeks there, no need to grab the thumb
+    draggedValue = valueAt(event.clientX);
     isDragging = true;
     ondragging?.(true);
-    document.addEventListener("mousemove", onMousemove);
-    document.addEventListener("mouseup", onMouseup);
+
+    addEventListener("pointermove", onPointerMove);
+    addEventListener("pointerup", onPointerUp);
+    addEventListener("pointercancel", onPointerUp);
+  };
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    const step = event.shiftKey ? BIG_STEP : STEP;
+
+    const next = {
+      ArrowLeft: position - step,
+      ArrowRight: position + step,
+      ArrowDown: position - step,
+      ArrowUp: position + step,
+      Home: 0,
+      End: 1,
+    }[event.key];
+
+    if (next === undefined) return;
+
+    event.preventDefault();
+    onchange?.(clamp(next));
   };
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-  class="wrapper"
+  class="slider"
   class:dragging={isDragging}
-  bind:this={wrapperEl}
   style:--value="{position * 100}%"
-  style:--color-thumb-border={thumbBorderColor}
+  role="slider"
+  tabindex="0"
+  aria-label={label}
+  aria-valuemin={0}
+  aria-valuemax={100}
+  aria-valuenow={Math.round(position * 100)}
+  bind:this={trackEl}
+  onpointerdown={onPointerDown}
+  onkeydown={onKeyDown}
 >
-  <button class="thumb" aria-label="Seek" onmousedown={onMousedown}></button>
-
   <div class="track">
     <div class="track__value"></div>
   </div>
+
+  <div class="thumb"></div>
 </div>
 
 <style>
-  .wrapper {
-    display: flex;
+  .slider {
     position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    /* a thin line is hard to hit — the padding widens the grab area */
+    padding: 0.375rem 0;
+    cursor: pointer;
+    touch-action: none;
 
     &:hover .thumb,
-    &.dragging .thumb {
+    &.dragging .thumb,
+    &:focus-visible .thumb {
       opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    &:focus-visible {
+      outline: none;
     }
   }
-  .thumb {
-    --size: 17px;
-    height: var(--size);
-    width: var(--size);
+  .track {
+    height: 0.281rem;
+    width: 100%;
     border-radius: 10em;
-    display: flex;
-    background: var(--color-surface-100);
-    padding: 0;
-    margin: 0;
+    background: oklch(from var(--color-text) l c h / 0.12);
+    overflow: hidden;
+  }
+  .track__value {
+    height: 100%;
+    width: var(--value);
+    border-radius: 10em;
+    background: var(--color-text);
+  }
+  .thumb {
+    --size: 1.031rem;
+
     position: absolute;
     left: var(--value);
     top: 50%;
-    transform: translate(-50%, -50%);
-    transition: var(--transition);
-    opacity: 0;
-    border: 3px solid var(--color-thumb-border, var(--color-surface-100));
-    z-index: 2;
-    cursor: pointer;
-  }
-  .track {
-    height: 4px;
+    height: var(--size);
+    width: var(--size);
     border-radius: 10em;
-    background: var(--color-surface-10);
-    width: 100%;
-
-    &__value {
-      position: absolute;
-      left: 0;
-      height: 100%;
-      background: var(--color-surface-100);
-      width: var(--value);
-      border-radius: 10em;
-    }
+    background: var(--color-accent);
+    box-shadow:
+      var(--shadow-1),
+      0 0 0 1px oklch(from var(--color-text) l c h / 0.12);
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.6);
+    /* everything but `left`: animating the position makes the thumb lag
+       behind the cursor while dragging */
+    transition:
+      opacity var(--transition),
+      transform var(--transition),
+      width var(--transition),
+      height var(--transition);
+    pointer-events: none;
+    z-index: 2;
+  }
+  .dragging .thumb {
+    --size: 1.219rem;
   }
 </style>

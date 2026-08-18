@@ -10,7 +10,7 @@
 
 <aside class="now_playing">
   <div class="cover">
-    <Cover url={track?.album.images[0]?.url} size={240} />
+    <Cover url={track?.album.images[0]?.url} size={240} fill />
   </div>
 
   <div class="meta">
@@ -36,17 +36,24 @@
 
 <style>
   .now_playing {
+    --gutter: 10px;
+
     display: flex;
     flex-direction: column;
     height: 100%;
     width: 100%;
-    padding: 10px;
-    gap: 12px;
     overflow: hidden;
   }
+  /* the padding lives on the sections, so the lyrics scrollbar sits at the
+     panel's edge instead of floating inside a gutter */
   .cover {
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
+    /* the panel is a column flex: without this the square gets squashed
+       vertically whenever the lyrics need the room */
+    align-items: flex-start;
+    flex-shrink: 0;
+    padding: var(--gutter);
 
     & :global(.cover) {
       box-shadow: var(--shadow-1);
@@ -56,26 +63,27 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    padding: 0 var(--gutter);
   }
   .name {
-    font-size: 1.1rem;
+    font-size: 1.03rem;
     font-weight: 600;
     line-height: 1.2;
   }
   .artists {
-    margin-top: 2px;
-    font-size: 0.9rem;
-    color: var(--color-text-80);
+    margin-top: 0.125rem;
+    font-size: 0.84rem;
+    color: oklch(from var(--color-text) l c h / 0.8);
   }
   .details {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 2px 10px;
-    margin: 10px 0 0;
-    font-size: 0.85rem;
+    gap: 0.125rem 0.625rem;
+    margin: 0.625rem 0 0;
+    font-size: 0.8rem;
 
     & dt {
-      color: var(--color-text-60);
+      color: oklch(from var(--color-text) l c h / 0.6);
     }
     & dd {
       margin: 0;
@@ -89,11 +97,13 @@
     flex: 1;
     min-height: 0;
     display: flex;
-    border-top: 1px solid var(--color-surface-20);
-    padding-top: 10px;
+    margin-top: 0.75rem;
+    border-top: 1px solid oklch(from var(--color-text) l c h / 0.12);
 
     & :global(.lyrics) {
       flex: 1;
+      padding: var(--gutter);
+      scrollbar-gutter: stable;
     }
   }
 </style>

@@ -32,8 +32,8 @@
 <style>
   .wrapper {
     display: flex;
-    gap: 14px;
-    padding: 10px;
+    gap: 0.875rem;
+    padding: 0.625rem;
   }
   .info {
     display: flex;
@@ -49,12 +49,12 @@
   }
   .actions {
     display: flex;
-    gap: 8px;
-    margin-top: 10px;
+    gap: 0.5rem;
+    margin-top: 0.625rem;
   }
   h1 {
     margin: 0;
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     line-height: 1.2;
   }
   p :global(a) {
@@ -63,8 +63,8 @@
     cursor: pointer;
   }
   p {
-    margin: 4px 0 0;
-    font-size: 0.9rem;
-    color: var(--color-text-60);
+    margin: 0.25rem 0 0;
+    font-size: 0.84rem;
+    color: oklch(from var(--color-text) l c h / 0.6);
   }
 </style>

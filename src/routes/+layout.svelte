@@ -10,6 +10,24 @@
   const themeStyles = themeModel.$themeStyles;
   let styleEl: HTMLStyleElement;
 
+  /**
+   * macOS dims its chrome when a window loses focus; styles can follow suit.
+   * document.hasFocus covers the initial state, which the events do not fire for.
+   */
+  onMount(() => {
+    const update = () =>
+      document.body.classList.toggle("window__focused", document.hasFocus());
+
+    update();
+    addEventListener("focus", update);
+    addEventListener("blur", update);
+
+    return () => {
+      removeEventListener("focus", update);
+      removeEventListener("blur", update);
+    };
+  });
+
   onMount(() => {
     styleEl = document.createElement("style");
     document.head.appendChild(styleEl);

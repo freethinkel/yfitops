@@ -32,20 +32,20 @@
     appearance: none;
     border: none;
     background: none;
-    padding: 6px;
+    padding: 0.375rem;
     width: 140px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0.125rem;
     text-align: left;
-    color: var(--color-text-100);
+    color: var(--color-text);
     border-radius: var(--border-radius);
     cursor: pointer;
     transition: var(--transition);
 
     &:hover {
-      background: var(--color-surface-10);
+      background: oklch(from var(--color-text) l c h / 0.04);
     }
   }
   .card.round :global(.cover) {
@@ -59,12 +59,12 @@
     white-space: nowrap;
   }
   .title {
-    margin-top: 6px;
-    font-size: 0.9rem;
+    margin-top: 0.375rem;
+    font-size: 0.84rem;
     font-weight: 600;
   }
   .subtitle {
-    font-size: 0.8rem;
-    color: var(--color-text-60);
+    font-size: 0.75rem;
+    color: oklch(from var(--color-text) l c h / 0.6);
   }
 </style>

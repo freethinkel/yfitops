@@ -44,7 +44,7 @@
     width: 220px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.5rem;
 
     & :global(button) {
       width: 100%;
@@ -52,7 +52,7 @@
   }
   .error {
     margin: 0;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--color-error);
     text-align: center;
   }

@@ -11,11 +11,11 @@
 <style>
   img {
     border-radius: 10em;
-    border: 1px solid var(--color-surface-10);
+    border: 1px solid oklch(from var(--color-text) l c h / 0.04);
     height: var(--size);
     width: var(--size);
     object-fit: cover;
     object-position: center;
-    background: var(--color-surface-10);
+    background: oklch(from var(--color-text) l c h / 0.04);
   }
 </style>

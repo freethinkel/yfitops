@@ -1,6 +1,13 @@
 :root {
+  --border-radius: 10px;
+  --transition: 0.1s ease-in-out;
+  --shadow-1:
+    0 1px 2px rgba(0, 0, 0, 0.028), 0 3.4px 6.7px rgba(0, 0, 0, 0.042),
+    0 15px 30px rgba(0, 0, 0, 0.07);
+
   font-family: system-ui, Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 15px;
+  /* 16px base keeps spacing readable: 0.5rem = 8px */
+  font-size: 16px;
   line-height: 24px;
   font-weight: 400;
 
@@ -10,8 +17,8 @@
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
 
-  color: var(--color-text-100);
-  background: var(--color-background-20);
+  color: var(--color-text);
+  background: oklch(from var(--color-background) l c h / 0.2);
   user-select: none;
 
   --spring-transition: 0.5s

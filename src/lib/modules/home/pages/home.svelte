@@ -60,24 +60,24 @@
 
 <style>
   .page {
-    padding-bottom: 10px;
+    padding-bottom: 0.625rem;
   }
   h1 {
     margin: 0;
-    padding: 10px 16px 0;
-    font-size: 1.6rem;
+    padding: 0.625rem 1rem 0;
+    font-size: 1.5rem;
   }
   .notice {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
-    padding: 16px;
+    gap: 0.625rem;
+    padding: 1rem;
     max-width: 480px;
 
     & p {
       margin: 0;
-      color: var(--color-text-60);
+      color: oklch(from var(--color-text) l c h / 0.6);
     }
     & .error {
       color: var(--color-error);

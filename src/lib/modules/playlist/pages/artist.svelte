@@ -5,7 +5,6 @@
   import { Button } from "$lib/shared/components/button";
   import { PlaylistInfo } from "../components/playlist-info";
   import { TrackList } from "../components/track-list";
-  import { TrackListSkeleton } from "../components/track-list-skeleton";
   import { playlistModel } from "../model";
 
   interface Props {
@@ -42,8 +41,9 @@
   </Button>
 </PlaylistInfo>
 
+<TrackList tracks={$artist?.topTracks} />
+
 {#if $artist}
-  <TrackList tracks={$artist.topTracks} />
 
   <Section
     title="Albums"
@@ -60,6 +60,4 @@
       />
     {/each}
   </Section>
-{:else}
-  <TrackListSkeleton />
 {/if}

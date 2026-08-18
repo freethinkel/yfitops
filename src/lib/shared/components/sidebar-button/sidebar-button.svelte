@@ -49,28 +49,28 @@
 <style>
   .sidebar_btn {
     appearance: none;
-    color: var(--color-text-100);
+    color: var(--color-text);
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 0.3125rem;
     text-decoration: none;
     background: transparent;
     border-radius: var(--border-radius);
     height: 28px;
-    padding: 0 6px;
-    font-size: 0.9rem;
+    padding: 0 0.375rem;
+    font-size: 0.84rem;
 
     &:hover,
     &.active {
-      background: var(--color-surface-10);
+      background: oklch(from var(--color-text) l c h / 0.04);
     }
     &.over {
-      background: var(--color-accent-20);
+      background: oklch(from var(--color-accent) l c h / 0.2);
     }
   }
   .icon__wrapper {
     display: flex;
-    color: var(--color, var(--color-text-60));
+    color: var(--color, oklch(from var(--color-text) l c h / 0.6));
   }
   .inner {
     overflow: hidden;

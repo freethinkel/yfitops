@@ -2,7 +2,6 @@
   import { Button } from "$lib/shared/components/button";
   import { PlaylistInfo } from "../components/playlist-info";
   import { TrackList } from "../components/track-list";
-  import { TrackListSkeleton } from "../components/track-list-skeleton";
   import { playlistModel } from "../model";
 
   interface Props {
@@ -44,8 +43,4 @@
     .join(" · ")}
 />
 
-{#if tracks}
-  <TrackList {tracks} />
-{:else}
-  <TrackListSkeleton />
-{/if}
+<TrackList {tracks} />
