@@ -27,12 +27,15 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: var(--transition);
-    /* -apple-visual-effect: -apple-system-glass-material; */
+    transition: var(--spring-transition);
 
     &:disabled {
       opacity: 0.5;
       cursor: default;
+    }
+
+    &:active {
+      transform: scale(0.98);
     }
 
     &.kind__filled {
@@ -41,12 +44,8 @@
       color: var(--color-background);
       transition: var(--spring-transition);
 
-      /* the clear material made this invisible: it drops the background while
-         the label stays the background colour */
       @supports (-apple-visual-effect: -apple-system-glass-material-clear) {
-        &:active {
-          transform: scale(0.98);
-        }
+        -apple-visual-effect: -apple-system-glass-material-clear;
       }
     }
 

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="yfitops">
+  <rect width="512" height="512" rx="114" fill="#100F13"/>
+  <!-- the same three arcs, turned upside down: spotify read backwards -->
+  <g transform="rotate(180 256 256)" fill="none" stroke="#00D560" stroke-linecap="round">
+    <path d="M120 196a290 290 0 0 1 272 0" stroke-width="46"/>
+    <path d="M156 282a220 220 0 0 1 200 0" stroke-width="38"/>
+    <path d="M192 360a150 150 0 0 1 128 0" stroke-width="30"/>
+  </g>
+</svg>

@@ -19,6 +19,8 @@
 
   color: var(--color-text);
   background: oklch(from var(--color-background) l c h / 0.2);
+  /* WebKit still honours only the prefixed property for this */
+  -webkit-user-select: none;
   user-select: none;
 
   --spring-transition: 0.5s
@@ -136,6 +138,9 @@
 html,
 body {
   margin: 0;
+  /* :root alone was not enough — WebKit lets the selection start on body */
+  -webkit-user-select: none;
+  user-select: none;
   height: 100vh;
   min-height: 100vh;
   overflow: hidden;

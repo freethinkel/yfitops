@@ -14,7 +14,7 @@ export const $sidebarWidth = persistentAtom("sidebar_width", 200, number);
 export const $detailsWidth = persistentAtom("details_width", 300, number);
 export const $detailsOpen = persistentAtom("details_open", false, boolean);
 
-export type DetailsView = "now-playing" | "queue";
+export type DetailsView = "now-playing" | "queue" | "friends";
 export const $detailsView = persistentAtom<DetailsView>(
   "details_view",
   "now-playing",

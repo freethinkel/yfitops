@@ -4,6 +4,7 @@
   import { appModel } from "$lib/modules/app/model";
   import { authModel } from "$lib/modules/auth/model";
   import { NowPlaying } from "$lib/modules/player/components/now-playing";
+  import { Friends } from "$lib/modules/friends/components/friends";
   import { Queue } from "$lib/modules/player/components/queue";
   import { Player } from "$lib/modules/player/components/player";
   import { Resizable } from "$lib/shared/components/resizable";
@@ -57,7 +58,9 @@
       <div class="details">
         <!-- absolute so the panel's own scrolling content keeps the full height -->
         <div data-tauri-drag-region class="drag"></div>
-        {#if $detailsView === "queue"}
+        {#if $detailsView === "friends"}
+          <Friends />
+        {:else if $detailsView === "queue"}
           <Queue />
         {:else}
           <NowPlaying />
@@ -84,7 +87,8 @@
   .outlet {
     flex: 1;
     min-height: 0;
-    overflow: auto;
+    /* vertical only: anything too wide scrolls inside itself */
+    overflow: hidden auto;
     padding-bottom: 5.625rem;
   }
   .drag {

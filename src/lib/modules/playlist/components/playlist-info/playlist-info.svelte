@@ -44,6 +44,7 @@
   /* the app is user-select: none — the title and blurb are the exception */
   h1,
   p {
+    -webkit-user-select: text;
     user-select: text;
     cursor: text;
   }

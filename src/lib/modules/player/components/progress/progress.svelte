@@ -37,17 +37,17 @@
 
       &:hover {
         & .slider {
-          transform: translateY(-10px);
+          transform: translateY(-6px);
         }
         & :global(.track) {
-          height: 0.469rem;
+          height: 0.15rem;
         }
       }
 
       &:hover .time,
       &.dragging .time {
         opacity: 1;
-        transform: translateY(-10px);
+        transform: translateY(-6px);
       }
 
       & .time {

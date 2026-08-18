@@ -109,7 +109,22 @@ export const seek = (position: number) => {
   if (state) $playerState.set({ ...state, position });
 };
 
-export const play = (uris: string[]) => spotifyApi.play({ uris, device_id: deviceId });
+const startPlayback = (uris: string[]) => spotifyApi.play({ uris, device_id: deviceId });
+
+/**
+ * With shuffle on the API picks a random entry from `uris` instead of the
+ * first one, so clicking a row started some other track. Shuffle is turned off
+ * for the call and put back right after — re-enabling keeps the track that is
+ * already playing and only reshuffles what comes next, which is what the
+ * native clients do.
+ */
+export const play = async (uris: string[]) => {
+  const shuffled = $playerState.get()?.shuffle ?? false;
+
+  if (shuffled) await spotifyApi.setShuffle(false, { device_id: deviceId });
+  await startPlayback(uris);
+  if (shuffled) await spotifyApi.setShuffle(true, { device_id: deviceId });
+};
 
 /** Plays a whole playlist, album or artist by its uri. */
 /** Same for a bare list of tracks — liked songs have no context uri. */
@@ -118,7 +133,7 @@ export const playShuffled = async (uris: string[]) => {
   pending.set("shuffle", true);
 
   await spotifyApi.setShuffle(true, { device_id: deviceId });
-  await play(uris);
+  await startPlayback(uris);
 };
 
 /** Starts a playlist or album shuffled, the way the native clients do. */
