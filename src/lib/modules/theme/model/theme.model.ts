@@ -1,18 +1,19 @@
-import { atom, computed, onMount } from "nanostores";
-import { THEMES, themeToStyles } from "./themes";
-import type { Theme } from "../types";
+import { atom, computed } from "nanostores";
+import { DEFAULT_THEME, THEMES, themeToStyles } from "./themes";
 
-const darkMedia = window.matchMedia("(prefers-color-scheme: dark)");
+const STORAGE_KEY = "selected_theme_id";
 
-export const $theme = atom<Theme>(darkMedia.matches ? THEMES.dark : THEMES.light);
+/** Only the id is stored — palettes live in the code anyway. */
+const $themeId = atom(localStorage.getItem(STORAGE_KEY) ?? DEFAULT_THEME.id);
+
+export const $themes = atom(THEMES);
+export const $theme = computed(
+  $themeId,
+  (id) => THEMES.find((theme) => theme.id === id) ?? DEFAULT_THEME,
+);
 export const $themeStyles = computed($theme, themeToStyles);
 
-export const setTheme = (theme: Theme) => $theme.set(theme);
-
-onMount($theme, () => {
-  const onChange = (event: MediaQueryListEvent) =>
-    setTheme(event.matches ? THEMES.dark : THEMES.light);
-
-  darkMedia.addEventListener("change", onChange);
-  return () => darkMedia.removeEventListener("change", onChange);
-});
+export const selectTheme = (id: string) => {
+  $themeId.set(id);
+  localStorage.setItem(STORAGE_KEY, id);
+};

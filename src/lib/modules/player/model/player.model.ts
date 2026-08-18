@@ -26,6 +26,25 @@ export const nextTrack = () => {
 
   player?.nextTrack();
 };
+/**
+ * Shuffle and repeat live in the playback state the SDK reports, but only the
+ * Web API can change them.
+ */
+export const toggleShuffle = async () => {
+  const state = $playerState.get();
+  if (!state) return;
+
+  await spotifyApi.setShuffle(!state.shuffle, { device_id: deviceId });
+};
+
+/** off → context → track → off, the order the native clients cycle through. */
+export const cycleRepeat = async () => {
+  const mode = $playerState.get()?.repeat_mode ?? 0;
+  const next = (["context", "track", "off"] as const)[mode];
+
+  await spotifyApi.setRepeat(next, { device_id: deviceId });
+};
+
 export const prevTrack = () => player?.previousTrack();
 
 export const seek = (position: number) => {

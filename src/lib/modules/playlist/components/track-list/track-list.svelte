@@ -15,8 +15,10 @@
 
   interface Props {
     tracks?: readonly SpotifyApi.TrackObjectFull[];
+    /** Set on a playlist page the user may edit — enables "remove from it". */
+    removeFrom?: string;
   }
-  const { tracks = [] }: Props = $props();
+  const { tracks = [], removeFrom }: Props = $props();
 
   type Column = {
     title: string;
@@ -104,6 +106,15 @@
           icon: NativeIcon.ListView,
           action: () => playerModel.addToQueue(track.uri),
         }),
+        ...(removeFrom
+          ? [
+              IconMenuItem.new({
+                text: "Удалить из плейлиста",
+                icon: NativeIcon.Remove,
+                action: () => playlistModel.removeFromPlaylist(removeFrom, track.uri),
+              }),
+            ]
+          : []),
         PredefinedMenuItem.new({ item: "Separator" }),
         IconMenuItem.new({
           text: "Перейти к альбому",

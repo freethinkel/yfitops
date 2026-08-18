@@ -1,4 +1,10 @@
-import { atom, computed, onMount, type ReadableAtom } from "nanostores";
+import {
+  atom,
+  computed,
+  onMount,
+  type ReadableAtom,
+  type WritableAtom,
+} from "nanostores";
 import { authModel, internalSession } from "$lib/modules/auth/model";
 import { userModel } from "$lib/modules/user/model";
 import { spotifyApi } from "$lib/shared/api/spotify";
@@ -156,6 +162,82 @@ export const addToLiked = (track: SpotifyApi.TrackObjectFull) => {
   if (liked.some((item) => item.track.id === track.id)) return;
 
   return toggleLike(track);
+};
+
+export const removeFromPlaylist = async (
+  playlistId: string,
+  uri: string,
+) => {
+  await spotifyApi.removeTracksFromPlaylist(playlistId, [uri]);
+
+  // the page reads from the cache, so it has to forget the stale copy
+  cache.delete(`playlist:${playlistId}`);
+  forget(`playlist:${playlistId}`);
+};
+
+/** Saved albums and followed artists, each a store that checks itself. */
+export const isSavedAlbum = (id: string) => {
+  const $saved = atom<boolean | null>(null);
+
+  onMount($saved, () =>
+    authModel.whenAuthorized(async () => {
+      const [saved] = await spotifyApi.containsMySavedAlbums([id]);
+      $saved.set(saved);
+    }),
+  );
+
+  return $saved;
+};
+
+export const toggleSavedAlbum = async (
+  id: string,
+  $saved: WritableAtom<boolean | null>,
+) => {
+  const saved = $saved.get();
+  $saved.set(!saved);
+
+  try {
+    if (saved) {
+      await spotifyApi.removeFromMySavedAlbums([id]);
+    } else {
+      await spotifyApi.addToMySavedAlbums([id]);
+    }
+  } catch (err) {
+    $saved.set(saved);
+    throw err;
+  }
+};
+
+export const isFollowedArtist = (id: string) => {
+  const $followed = atom<boolean | null>(null);
+
+  onMount($followed, () =>
+    authModel.whenAuthorized(async () => {
+      const [followed] = await spotifyApi.isFollowingArtists([id]);
+      $followed.set(followed);
+    }),
+  );
+
+  return $followed;
+};
+
+export const toggleFollowedArtist = async (
+  id: string,
+  $followed: WritableAtom<boolean | null>,
+) => {
+  const followed = $followed.get();
+  $followed.set(!followed);
+
+  try {
+    if (followed) {
+      await spotifyApi.unfollowArtists([id]);
+    } else {
+      await spotifyApi.followArtists([id]);
+    }
+  } catch (err) {
+    $followed.set(followed);
+    throw err;
+  }
 };
 
 /** Whether the playlist sits in the user's library — drives the add button. */

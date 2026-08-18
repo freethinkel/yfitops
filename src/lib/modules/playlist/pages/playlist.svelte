@@ -12,6 +12,9 @@
 
   const playlist = $derived(playlistModel.playlist(id));
   const followed = $derived(playlistModel.isFollowed(id));
+  const editable = $derived(
+    playlistModel.$editablePlaylists.get().some((item) => item.id === id),
+  );
 
   let busy = $state(false);
 
@@ -47,7 +50,7 @@
 </PlaylistInfo>
 
 {#if tracks}
-  <TrackList {tracks} />
+  <TrackList {tracks} removeFrom={editable ? id : undefined} />
 {:else}
   <TrackListSkeleton />
 {/if}

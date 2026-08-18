@@ -7,6 +7,15 @@
 
 <div class="controls">
   <button
+    class="mode"
+    class:active={$playerState?.shuffle}
+    aria-label="Перемешать"
+    aria-pressed={$playerState?.shuffle ?? false}
+    onclick={() => playerModel.toggleShuffle()}
+  >
+    <Icon name="shuffle" size={16} />
+  </button>
+  <button
     aria-label="Previous track"
     onclick={() => playerModel.prevTrack()}
     disabled={!$playerState?.track_window.previous_tracks.length}
@@ -22,6 +31,15 @@
   </button>
   <button aria-label="Next track" onclick={() => playerModel.nextTrack()}>
     <Icon name="next-track" />
+  </button>
+
+  <button
+    class="mode"
+    class:active={($playerState?.repeat_mode ?? 0) > 0}
+    aria-label="Повтор"
+    onclick={() => playerModel.cycleRepeat()}
+  >
+    <Icon name={$playerState?.repeat_mode === 2 ? "repeat-one" : "repeat"} size={16} />
   </button>
 </div>
 

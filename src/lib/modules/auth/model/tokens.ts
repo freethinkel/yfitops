@@ -51,6 +51,7 @@ const requestTokens = async (params: Record<string, string>) => {
     access_token: string;
     refresh_token?: string;
     expires_in: number;
+    scope?: string;
   };
 };
 
@@ -71,6 +72,7 @@ export const getTokensFromCode = async (
     accessToken: data.access_token,
     refreshToken: data.refresh_token ?? "",
     expiration: new Date(Date.now() + data.expires_in * 1000),
+    scopes: data.scope?.split(" ") ?? [],
   };
 };
 
@@ -88,5 +90,6 @@ export const refreshTokens = async (
     accessToken: data.access_token,
     refreshToken: data.refresh_token ?? tokens.refreshToken,
     expiration: new Date(Date.now() + data.expires_in * 1000),
+    scopes: data.scope?.split(" ") ?? tokens.scopes,
   };
 };

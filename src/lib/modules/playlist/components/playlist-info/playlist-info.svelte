@@ -12,11 +12,10 @@
   const { image = "", name = "", description = "", children }: Props = $props();
 
   const html = $derived(sanitizeDescription(description));
-
 </script>
 
 <div class="wrapper">
-  <Cover url={image} size={100} icon="playlist" />
+  <Cover url={image} size={100} icon="music" />
 
   <div class="info">
     <h1>{name}</h1>

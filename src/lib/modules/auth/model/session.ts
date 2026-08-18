@@ -8,6 +8,8 @@ import type { AuthTokens } from "../types";
 import { createAuthRequest, getTokensFromCode, refreshTokens } from "./tokens";
 
 type Options = {
+  /** When the app asks for more than the stored token has, it must be redone. */
+  requiredScopes?: string[];
   /** localStorage key — one per client id, the tokens are not interchangeable. */
   storageKey: string;
   clientId: string;
@@ -18,7 +20,12 @@ type Options = {
  * One OAuth session. There are two: the app's own client for the Web API, and
  * librespot's for the internal endpoints its RBAC lets only known clients into.
  */
-export const createSession = ({ storageKey, clientId, onTokens }: Options) => {
+export const createSession = ({
+  storageKey,
+  clientId,
+  onTokens,
+  requiredScopes = [],
+}: Options) => {
   const $tokens = persistentAtom<AuthTokens | null>(storageKey, null, {
     encode: JSON.stringify,
     decode: (raw) => {
@@ -50,10 +57,20 @@ export const createSession = ({ storageKey, clientId, onTokens }: Options) => {
     }
   };
 
+  const covers = (tokens: AuthTokens) =>
+    requiredScopes.every((scope) => tokens.scopes?.includes(scope));
+
   /** Restores the persisted session as soon as anything observes it. */
   onMount($isAuthorized, () => {
     const tokens = $tokens.get();
     if (!tokens || $isAuthorized.get()) return;
+
+    // the app grew a permission the stored token never had
+    if (!covers(tokens)) {
+      logout();
+      $error.set("Права приложения изменились — войди заново");
+      return;
+    }
 
     if (tokens.expiration.getTime() > Date.now()) {
       applyTokens(tokens);

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { appModel } from "$lib/modules/app/model";
-  import { themeModel } from "$lib/modules/theme/model";
   import { Icon } from "$lib/shared/components/icon";
   import { playerModel } from "../../model";
   import Controls from "../controls/controls.svelte";
@@ -10,12 +9,12 @@
   const detailsOpen = appModel.$detailsOpen;
   const detailsView = appModel.$detailsView;
   const trackColor = playerModel.$trackColor;
-  const theme = themeModel.$theme;
 
+  // mixed in CSS so it follows the palette the OS is currently asking for
   const color = $derived(
     $trackColor === "transparent"
-      ? $theme.background
-      : `color-mix(in srgb, ${$trackColor} 50%, ${$theme.background})`,
+      ? "var(--color-background-100)"
+      : `color-mix(in srgb, ${$trackColor} 50%, var(--color-background-100))`,
   );
 </script>
 

@@ -27,4 +27,6 @@ export const SCOPES = [
   "user-read-recently-played",
   "playlist-modify-private",
   "playlist-modify-public",
+  "user-follow-read",
+  "user-follow-modify",
 ];
