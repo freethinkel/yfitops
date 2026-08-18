@@ -2,10 +2,12 @@
   import { goto } from "$app/navigation";
   import { Button } from "$lib/shared/components/button";
   import { authModel } from "../model";
+  import { authMessages } from "$lib/modules/i18n";
 
   const isAuthorized = authModel.$isAuthorized;
   const isPending = authModel.$isPending;
   const error = authModel.$error;
+  const t = authMessages;
 
   $effect(() => {
     if ($isAuthorized) goto("/app", { replaceState: true });
@@ -16,7 +18,7 @@
   <div data-tauri-drag-region class="drag"></div>
   <div class="form">
     <Button disabled={$isPending} onclick={() => authModel.login()}>
-      {$isPending ? "Signing in…" : "Login with Spotify"}
+      {$isPending ? $t.signingIn : $t.login}
     </Button>
     {#if $error}
       <p class="error">{$error}</p>

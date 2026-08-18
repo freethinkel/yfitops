@@ -3,7 +3,9 @@
   import { Cover } from "$lib/shared/components/cover";
   import { formatDuration } from "$lib/shared/helpers/date-time";
   import { playerModel } from "../../model";
+  import { playerMessages } from "$lib/modules/i18n";
 
+  const t = playerMessages;
   const playerState = playerModel.$playerState;
   const track = $derived($playerState?.track_window.current_track);
 </script>
@@ -14,16 +16,16 @@
   </div>
 
   <div class="meta">
-    <div class="name">{track?.name ?? "Nothing playing"}</div>
+    <div class="name">{track?.name ?? $t.nothingPlaying}</div>
     <div class="artists">
       {track?.artists.map((artist) => artist.name).join(", ") ?? ""}
     </div>
 
     {#if track}
       <dl class="details">
-        <dt>Album</dt>
+        <dt>{$t.album}</dt>
         <dd>{track.album.name}</dd>
-        <dt>Duration</dt>
+        <dt>{$t.duration}</dt>
         <dd>{formatDuration(track.duration_ms)}</dd>
       </dl>
     {/if}
@@ -77,13 +79,16 @@
   }
   .details {
     display: grid;
-    grid-template-columns: auto 1fr;
+    /* max-content, not auto: a long label like “Длительность” must keep its
+       width and let the value truncate instead of being squeezed itself */
+    grid-template-columns: max-content 1fr;
     gap: 0.125rem 0.625rem;
     margin: 0.625rem 0 0;
     font-size: 0.8rem;
 
     & dt {
       color: oklch(from var(--color-text) l c h / 0.6);
+      white-space: nowrap;
     }
     & dd {
       margin: 0;

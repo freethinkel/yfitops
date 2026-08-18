@@ -4,7 +4,9 @@
   import { Card } from "$lib/shared/components/card";
   import { Section } from "../components/section";
   import { homeModel } from "../model";
+  import { homeMessages } from "$lib/modules/i18n";
 
+  const t = homeMessages;
   const greeting = homeModel.$greeting;
   const sections = homeModel.$sections;
   const isPending = homeModel.$isPending;
@@ -19,20 +21,17 @@
 </script>
 
 <div class="page">
-  <h1>{$greeting || "Home"}</h1>
+  <h1>{$greeting || $t.title}</h1>
 
   {#if !$isEnabled}
     <div class="notice">
-      <p>
-        The home feed — Discover Weekly, your daily mixes — comes from Spotify's
-        internal API, which needs a sign-in of its own.
-      </p>
-      <Button onclick={() => homeModel.enable()}>Enable home feed</Button>
+      <p>{$t.notice}</p>
+      <Button onclick={() => homeModel.enable()}>{$t.enable}</Button>
     </div>
   {:else if $error}
     <div class="notice">
       <p class="error">{$error}</p>
-      <Button kind="ghost" onclick={() => homeModel.reload()}>Try again</Button>
+      <Button kind="ghost" onclick={() => homeModel.reload()}>{$t.retry}</Button>
     </div>
   {:else}
     {#each $sections ?? [] as section (section.title)}

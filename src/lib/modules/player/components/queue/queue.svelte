@@ -3,7 +3,9 @@
   import { formatDuration } from "$lib/shared/helpers/date-time";
   import * as trackDnd from "$lib/shared/helpers/track-dnd";
   import { playerModel } from "../../model";
+  import { playerMessages } from "$lib/modules/i18n";
 
+  const t = playerMessages;
   const playerState = playerModel.$playerState;
   const queue = playerModel.$queue;
   const queueError = playerModel.$queueError;
@@ -74,7 +76,7 @@
     onDrop(event);
   }}
 >
-  <h2>Now playing</h2>
+  <h2>{$t.nowPlaying}</h2>
   {#if current}
     <div class="row current">
       <Cover url={current.album.images.at(-1)?.url} size={32} />
@@ -86,10 +88,10 @@
       </div>
     </div>
   {:else}
-    <p class="empty">Nothing playing</p>
+    <p class="empty">{$t.nothingPlaying}</p>
   {/if}
 
-  <h2>Next up</h2>
+  <h2>{$t.nextUp}</h2>
   {#if next.length}
     <div class="list">
       {#each next as track, index (index)}
@@ -124,7 +126,7 @@
           <button
             class="remove"
             type="button"
-            aria-label="Убрать из очереди"
+            aria-label={$t.removeFromQueue}
             onclick={(event) => {
               event.stopPropagation();
               playerModel.removeFromQueue(index);
@@ -138,7 +140,7 @@
   {:else if $queueError}
     <p class="empty error">{$queueError}</p>
   {:else}
-    <p class="empty">The queue is empty</p>
+    <p class="empty">{$t.queueEmpty}</p>
   {/if}
 </aside>
 

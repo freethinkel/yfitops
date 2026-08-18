@@ -1,13 +1,21 @@
 <script lang="ts">
+  import { libraryMessages } from "$lib/modules/i18n";
+
+  const t = libraryMessages;
   import { Cover } from "$lib/shared/components/cover";
   import { Icon } from "$lib/shared/components/icon";
-  import { formatDuration } from "$lib/shared/helpers/date-time";
+  import { formatDate, formatDuration } from "$lib/shared/helpers/date-time";
   import { startTrackDrag } from "$lib/shared/helpers/track-dnd";
 
   interface Props {
     track: SpotifyApi.TrackObjectFull;
     index: number;
     liked?: boolean;
+    /** ISO date the track joined the playlist — playlists and liked songs only. */
+    addedAt?: string;
+    showAdded?: boolean;
+    showAlbum?: boolean;
+    showArtist?: boolean;
     /** The row the keyboard is on. */
     selected?: boolean;
     playing?: boolean;
@@ -20,6 +28,10 @@
     track,
     index,
     liked = false,
+    addedAt,
+    showAdded = false,
+    showAlbum = true,
+    showArtist = true,
     selected = false,
     playing = false,
     onplay,
@@ -64,7 +76,7 @@
     class="cell like"
     class:active={liked}
     type="button"
-    title={liked ? "Удалить из любимых" : "Добавить в любимые"}
+    title={liked ? $t.unlike : $t.like}
     onclick={(event) => {
       event.stopPropagation();
       onlike?.();
@@ -77,28 +89,33 @@
     <Cover url={track.album.images.at(-1)?.url} size={20} />
   </span>
   <span class="cell title" role="gridcell">{track.name}</span>
-  <span class="cell muted" role="gridcell">
-    {#if track.album.id}
-      <a
-        href="/app/album/{track.album.id}"
-        draggable="false"
-        onclick={stopPlay}
-      >
+  {#if showAlbum}
+    <span class="cell muted" role="gridcell">
+      {#if track.album.id}
+        <a href="/app/album/{track.album.id}" draggable="false" onclick={stopPlay}>
+          {track.album.name}
+        </a>
+      {:else}
         {track.album.name}
-      </a>
-    {:else}
-      {track.album.name}
-    {/if}
-  </span>
-  <span class="cell muted" role="gridcell">
-    {#each track.artists as artist, position (artist.id + position)}
-      {#if position > 0},
       {/if}
-      <a href="/app/artist/{artist.id}" draggable="false" onclick={stopPlay}
-        >{artist.name}</a
-      >
-    {/each}
-  </span>
+    </span>
+  {/if}
+  {#if showArtist}
+    <span class="cell muted" role="gridcell">
+      {#each track.artists as artist, position (artist.id + position)}
+        {#if position > 0},
+        {/if}
+        <a href="/app/artist/{artist.id}" draggable="false" onclick={stopPlay}
+          >{artist.name}</a
+        >
+      {/each}
+    </span>
+  {/if}
+  {#if showAdded}
+    <span class="cell muted added" role="gridcell">
+      {addedAt ? formatDate(addedAt) : ""}
+    </span>
+  {/if}
   <span class="cell time" role="gridcell"
     >{formatDuration(track.duration_ms)}</span
   >
@@ -113,7 +130,8 @@
     display: grid;
     grid-template-columns: var(--track-columns);
     align-items: center;
-    height: 24px;
+    /* set by the list: the virtualiser measures the window in these units */
+    height: var(--row-height);
     font-size: 0.75rem;
     line-height: 1;
     color: var(--color-text);
@@ -139,6 +157,9 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .added {
+    font-variant-numeric: tabular-nums;
   }
   .muted {
     color: oklch(from var(--color-text) l c h / 0.6);

@@ -1,0 +1,111 @@
+{
+  "auth": {
+    "signingIn": "Вход…",
+    "login": "Войти через Spotify"
+  },
+  "sidebar": {
+    "back": "Назад",
+    "forward": "Вперёд",
+    "home": "Главная",
+    "search": "Поиск",
+    "likedSongs": "Любимые треки",
+    "playlists": "Плейлисты"
+  },
+  "home": {
+    "title": "Главная",
+    "notice": "Главная — Discover Weekly, ежедневные миксы — приходит из внутреннего API Spotify, для которого нужен отдельный вход.",
+    "enable": "Включить главную",
+    "retry": "Попробовать снова"
+  },
+  "lyrics": {
+    "notice": "Spotify отдаёт тексты только клиенту librespot, поэтому для них нужен отдельный вход.",
+    "enable": "Включить тексты",
+    "loading": "Загрузка текста…",
+    "failed": "Не удалось загрузить текст: {error}",
+    "empty": "Для этого трека нет текста"
+  },
+  "player": {
+    "shuffle": "Перемешать",
+    "repeat": "Повтор",
+    "previousTrack": "Предыдущий трек",
+    "playPause": "Играть/пауза",
+    "nextTrack": "Следующий трек",
+    "seek": "Перемотка",
+    "toggleLyrics": "Показать текст",
+    "toggleQueue": "Показать очередь",
+    "nowPlaying": "Сейчас играет",
+    "nextUp": "Далее",
+    "nothingPlaying": "Ничего не играет",
+    "queueEmpty": "Очередь пуста",
+    "removeFromQueue": "Убрать из очереди",
+    "album": "Альбом",
+    "duration": "Длительность",
+    "toggleFriends": "Активность друзей"
+  },
+  "search": {
+    "placeholder": "Треки, артисты, альбомы",
+    "nothingFound": "Ничего не найдено",
+    "artists": "Артисты",
+    "artist": "Артист",
+    "albums": "Альбомы",
+    "playlists": "Плейлисты",
+    "tracks": "Треки"
+  },
+  "library": {
+    "play": "Слушать",
+    "shuffle": "Вперемешку",
+    "likedSongs": "Любимые треки",
+    "trackCount": {
+      "one": "{count} трек",
+      "few": "{count} трека",
+      "many": "{count} треков",
+      "other": "{count} трека"
+    },
+    "albums": "Альбомы",
+    "follow": "Подписаться",
+    "following": "Вы подписаны",
+    "add": "Добавить",
+    "remove": "Удалить",
+    "unfollow": "Отписаться",
+    "deletePlaylist": "Удалить плейлист «{name}»?",
+    "like": "Добавить в любимые",
+    "unlike": "Удалить из любимых",
+    "columnTrack": "Трек",
+    "columnAlbum": "Альбом",
+    "columnArtist": "Артист",
+    "columnDuration": "Время",
+    "columnAdded": "Добавлен"
+  },
+  "menu": {
+    "play": "Играть",
+    "open": "Открыть",
+    "copyLink": "Копировать ссылку",
+    "removeFromLibrary": "Убрать из библиотеки",
+    "addToPlaylist": "Добавить в плейлист",
+    "addToQueue": "В очередь",
+    "removeFromPlaylist": "Удалить из плейлиста",
+    "goToAlbum": "Перейти к альбому",
+    "goToArtist": "Перейти к артисту"
+  },
+  "profile": {
+    "theme": "Тема",
+    "language": "Язык",
+    "logout": "Выйти"
+  },
+  "friends": {
+    "title": "Друзья",
+    "notice": "Активность друзей приходит из внутреннего API Spotify, для него нужен отдельный вход.",
+    "enable": "Включить активность друзей",
+    "empty": "Сейчас никто не слушает",
+    "failed": "Не удалось загрузить друзей: {error}"
+  },
+  "user": {
+    "publicPlaylists": "Открытые плейлисты",
+    "followers": {
+      "one": "{count} подписчик",
+      "few": "{count} подписчика",
+      "many": "{count} подписчиков",
+      "other": "{count} подписчика"
+    }
+  }
+}

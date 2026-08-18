@@ -1,0 +1,101 @@
+{
+  "auth": {
+    "signingIn": "Connexion…",
+    "login": "Se connecter avec Spotify"
+  },
+  "sidebar": {
+    "back": "Retour",
+    "forward": "Suivant",
+    "home": "Accueil",
+    "search": "Recherche",
+    "likedSongs": "Titres likés",
+    "playlists": "Playlists"
+  },
+  "home": {
+    "title": "Accueil",
+    "notice": "L'accueil — Discover Weekly, vos mixes du jour — vient de l'API interne de Spotify, qui demande une connexion à part.",
+    "enable": "Activer l'accueil",
+    "retry": "Réessayer"
+  },
+  "lyrics": {
+    "notice": "Spotify ne fournit les paroles qu'au client librespot, elles demandent donc une connexion à part.",
+    "enable": "Activer les paroles",
+    "loading": "Chargement des paroles…",
+    "failed": "Échec du chargement des paroles : {error}",
+    "empty": "Aucune parole pour ce titre"
+  },
+  "player": {
+    "shuffle": "Lecture aléatoire",
+    "repeat": "Répéter",
+    "previousTrack": "Titre précédent",
+    "playPause": "Lecture/pause",
+    "nextTrack": "Titre suivant",
+    "seek": "Avancer",
+    "toggleLyrics": "Afficher les paroles",
+    "toggleQueue": "Afficher la file",
+    "nowPlaying": "En cours de lecture",
+    "nextUp": "À suivre",
+    "nothingPlaying": "Aucune lecture en cours",
+    "queueEmpty": "La file est vide",
+    "removeFromQueue": "Retirer de la file",
+    "album": "Album",
+    "duration": "Durée",
+    "toggleFriends": "Afficher l'activité des amis"
+  },
+  "search": {
+    "placeholder": "Titres, artistes, albums",
+    "nothingFound": "Aucun résultat",
+    "artists": "Artistes",
+    "artist": "Artiste",
+    "albums": "Albums",
+    "playlists": "Playlists",
+    "tracks": "Titres"
+  },
+  "library": {
+    "play": "Lecture",
+    "shuffle": "Aléatoire",
+    "likedSongs": "Titres likés",
+    "trackCount": {
+      "one": "{count} titre",
+      "many": "{count} titres",
+      "other": "{count} titres"
+    },
+    "albums": "Albums",
+    "follow": "Suivre",
+    "following": "Suivi",
+    "add": "Ajouter",
+    "remove": "Supprimer",
+    "unfollow": "Ne plus suivre",
+    "deletePlaylist": "Supprimer la playlist « {name} » ?",
+    "like": "Ajouter aux favoris",
+    "unlike": "Retirer des favoris",
+    "columnTrack": "Titre",
+    "columnAlbum": "Album",
+    "columnArtist": "Artiste",
+    "columnDuration": "Durée",
+    "columnAdded": "Ajouté"
+  },
+  "menu": {
+    "play": "Lecture",
+    "open": "Ouvrir",
+    "copyLink": "Copier le lien",
+    "removeFromLibrary": "Retirer de la bibliothèque",
+    "addToPlaylist": "Ajouter à une playlist",
+    "addToQueue": "Ajouter à la file",
+    "removeFromPlaylist": "Retirer de la playlist",
+    "goToAlbum": "Aller à l'album",
+    "goToArtist": "Aller à l'artiste"
+  },
+  "profile": {
+    "theme": "Thème",
+    "language": "Langue",
+    "logout": "Se déconnecter"
+  },
+  "friends": {
+    "title": "Amis",
+    "notice": "L'activité des amis vient de l'API interne de Spotify, qui demande une connexion à part.",
+    "enable": "Activer l'activité des amis",
+    "empty": "Personne n'écoute pour le moment",
+    "failed": "Échec du chargement de l'activité des amis : {error}"
+  }
+}

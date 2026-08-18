@@ -1,0 +1,99 @@
+{
+  "auth": {
+    "signingIn": "로그인 중…",
+    "login": "Spotify로 로그인"
+  },
+  "sidebar": {
+    "back": "뒤로",
+    "forward": "앞으로",
+    "home": "홈",
+    "search": "검색",
+    "likedSongs": "좋아요 표시한 곡",
+    "playlists": "플레이리스트"
+  },
+  "home": {
+    "title": "홈",
+    "notice": "홈 피드 — Discover Weekly, 데일리 믹스 — 는 Spotify 내부 API에서 오기 때문에 별도의 로그인이 필요합니다.",
+    "enable": "홈 피드 사용",
+    "retry": "다시 시도"
+  },
+  "lyrics": {
+    "notice": "Spotify는 librespot 클라이언트에만 가사를 제공하므로 별도의 로그인이 필요합니다.",
+    "enable": "가사 사용",
+    "loading": "가사 불러오는 중…",
+    "failed": "가사를 불러오지 못했습니다: {error}",
+    "empty": "이 트랙의 가사가 없습니다"
+  },
+  "player": {
+    "shuffle": "셔플",
+    "repeat": "반복",
+    "previousTrack": "이전 트랙",
+    "playPause": "재생/일시정지",
+    "nextTrack": "다음 트랙",
+    "seek": "탐색",
+    "toggleLyrics": "가사 표시",
+    "toggleQueue": "대기열 표시",
+    "nowPlaying": "재생 중",
+    "nextUp": "다음 재생",
+    "nothingPlaying": "재생 중인 곡 없음",
+    "queueEmpty": "대기열이 비어 있습니다",
+    "removeFromQueue": "대기열에서 제거",
+    "album": "앨범",
+    "duration": "재생 시간",
+    "toggleFriends": "친구 활동 표시"
+  },
+  "search": {
+    "placeholder": "곡, 아티스트, 앨범",
+    "nothingFound": "검색 결과 없음",
+    "artists": "아티스트",
+    "artist": "아티스트",
+    "albums": "앨범",
+    "playlists": "플레이리스트",
+    "tracks": "트랙"
+  },
+  "library": {
+    "play": "재생",
+    "shuffle": "셔플 재생",
+    "likedSongs": "좋아요 표시한 곡",
+    "trackCount": {
+      "other": "{count}곡"
+    },
+    "albums": "앨범",
+    "follow": "팔로우",
+    "following": "팔로잉",
+    "add": "추가",
+    "remove": "삭제",
+    "unfollow": "팔로우 취소",
+    "deletePlaylist": "플레이리스트 “{name}”을(를) 삭제할까요?",
+    "like": "좋아요 표시",
+    "unlike": "좋아요 해제",
+    "columnTrack": "트랙",
+    "columnAlbum": "앨범",
+    "columnArtist": "아티스트",
+    "columnDuration": "시간",
+    "columnAdded": "추가된 날짜"
+  },
+  "menu": {
+    "play": "재생",
+    "open": "열기",
+    "copyLink": "링크 복사",
+    "removeFromLibrary": "라이브러리에서 제거",
+    "addToPlaylist": "플레이리스트에 추가",
+    "addToQueue": "대기열에 추가",
+    "removeFromPlaylist": "플레이리스트에서 제거",
+    "goToAlbum": "앨범으로 이동",
+    "goToArtist": "아티스트로 이동"
+  },
+  "profile": {
+    "theme": "테마",
+    "language": "언어",
+    "logout": "로그아웃"
+  },
+  "friends": {
+    "title": "친구",
+    "notice": "친구 활동은 Spotify 내부 API에서 오기 때문에 별도의 로그인이 필요합니다.",
+    "enable": "친구 활동 사용",
+    "empty": "지금 듣고 있는 친구가 없습니다",
+    "failed": "친구 활동을 불러오지 못했습니다: {error}"
+  }
+}

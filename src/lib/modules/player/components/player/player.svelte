@@ -2,10 +2,12 @@
   import { appModel } from "$lib/modules/app/model";
   import { Icon } from "$lib/shared/components/icon";
   import { playerModel } from "../../model";
+  import { playerMessages } from "$lib/modules/i18n";
   import Controls from "../controls/controls.svelte";
   import Progress from "../progress/progress.svelte";
   import TrackInfo from "../track-info/track-info.svelte";
 
+  const t = playerMessages;
   const detailsOpen = appModel.$detailsOpen;
   const detailsView = appModel.$detailsView;
   const trackColor = playerModel.$trackColor;
@@ -30,16 +32,25 @@
     <button
       class:active={$detailsOpen && $detailsView === "now-playing"}
       type="button"
-      aria-label="Toggle lyrics"
+      aria-label={$t.toggleLyrics}
       aria-pressed={$detailsOpen && $detailsView === "now-playing"}
       onclick={() => appModel.showDetails("now-playing")}
     >
       <Icon name="lyrics" />
     </button>
     <button
+      class:active={$detailsOpen && $detailsView === "friends"}
+      type="button"
+      aria-label={$t.toggleFriends}
+      aria-pressed={$detailsOpen && $detailsView === "friends"}
+      onclick={() => appModel.showDetails("friends")}
+    >
+      <Icon name="friends" />
+    </button>
+    <button
       class:active={$detailsOpen && $detailsView === "queue"}
       type="button"
-      aria-label="Toggle queue"
+      aria-label={$t.toggleQueue}
       aria-pressed={$detailsOpen && $detailsView === "queue"}
       onclick={() => appModel.showDetails("queue")}
     >
@@ -72,11 +83,11 @@
       inset: 0;
       z-index: -2;
     }
+
     &::after {
       content: "";
       position: absolute;
       inset: 0;
-      /* background-color: var(--color-background); */
       opacity: 0.2;
       z-index: -1;
     }
@@ -88,9 +99,9 @@
       background: transparent;
       -apple-visual-effect: -apple-system-glass-material-media-controls;
       border-color: transparent;
-      /* the material brings its own edge and shadow — ours spilled past it */
       box-shadow: none;
       backdrop-filter: none;
+      border: none;
 
       &::before {
         z-index: 0;
@@ -114,8 +125,7 @@
   .right {
     position: relative;
   }
-  .left,
-  .right {
+  .left {
     width: 170px;
   }
   .left {
@@ -130,18 +140,17 @@
    * twice as tall and slid from its opaque half to its fading one.
    */
   .center :global(.track_info__root) {
-    /* the mask is twice as tall: its upper half is fully opaque, so at rest
-       nothing is masked at all, and the lower half holds the fade */
     mask-image: linear-gradient(
       to top,
       transparent 0%,
-      transparent 30%,
-      black 48%,
+      transparent 20%,
+      black 38%,
       black 100%
     );
     mask-size: 100% 200%;
     mask-position: 0% 0%;
     transition: mask-position 0.1s linear;
+    will-change: mask-position;
   }
   /* the fade belongs to the slider: it only gets in the way when the times
      next to it come up, not whenever the pointer crosses the capsule */

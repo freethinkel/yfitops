@@ -6,12 +6,14 @@
   import { PlaylistInfo } from "../components/playlist-info";
   import { TrackList } from "../components/track-list";
   import { playlistModel } from "../model";
+  import { libraryMessages } from "$lib/modules/i18n";
 
   interface Props {
     id: string;
   }
   const { id }: Props = $props();
 
+  const t = libraryMessages;
   const artist = $derived(playlistModel.artist(id));
 
   const saved = $derived(playlistModel.isFollowedArtist(id));
@@ -37,7 +39,7 @@
     disabled={busy || $saved === null}
     onclick={toggle}
   >
-    {$saved ? "Вы подписаны" : "Подписаться"}
+    {$saved ? $t.following : $t.follow}
   </Button>
 </PlaylistInfo>
 
@@ -46,7 +48,7 @@
 {#if $artist}
 
   <Section
-    title="Albums"
+    title={$t.albums}
     loaded={true}
     empty={!$artist.albums.length}
   >

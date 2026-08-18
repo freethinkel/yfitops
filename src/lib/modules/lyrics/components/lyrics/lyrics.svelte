@@ -2,7 +2,9 @@
   import { playerModel } from "$lib/modules/player/model";
   import { Button } from "$lib/shared/components/button";
   import { lyricsModel } from "../../model";
+  import { lyricsMessages } from "$lib/modules/i18n";
 
+  const t = lyricsMessages;
   const lyrics = lyricsModel.$lyrics;
   const isPending = lyricsModel.$isPending;
   const error = lyricsModel.$error;
@@ -43,13 +45,8 @@
 
 <div class="lyrics" class:synced={$lyrics?.synced} bind:this={wrapperEl}>
   {#if !$isEnabled}
-    <p class="empty">
-      Spotify hands lyrics only to librespot's client, so they need a sign-in of
-      their own.
-    </p>
-    <Button kind="ghost" onclick={() => lyricsModel.enable()}>
-      Enable lyrics
-    </Button>
+    <p class="empty">{$t.notice}</p>
+    <Button kind="ghost" onclick={() => lyricsModel.enable()}>{$t.enable}</Button>
   {:else if $lyrics}
     {#each $lyrics.lines as line, index (index)}
       <button
@@ -65,11 +62,11 @@
       </button>
     {/each}
   {:else if $isPending}
-    <p class="empty">Loading lyrics…</p>
+    <p class="empty">{$t.loading}</p>
   {:else if $error}
-    <p class="empty">Lyrics failed: {$error}</p>
+    <p class="empty">{$t.failed({ error: $error })}</p>
   {:else}
-    <p class="empty">No lyrics for this track</p>
+    <p class="empty">{$t.empty}</p>
   {/if}
 </div>
 

@@ -7,7 +7,9 @@
   import { SidebarButton } from "$lib/shared/components/sidebar-button";
   import { autoscroll } from "$lib/shared/helpers/autoscroll";
   import { droppedTrack, isTrackDrag } from "$lib/shared/helpers/track-dnd";
+  import { sidebarMessages } from "$lib/modules/i18n";
 
+  const t = sidebarMessages;
   const playlists = playlistModel.$playlists;
   const editable = playlistModel.$editablePlaylists;
   // dropping onto someone else's playlist is a 403, so those stay inert
@@ -37,14 +39,14 @@
   <div data-tauri-drag-region class="drag">
     <div class="history-buttons">
       <button
-        aria-label="Back"
+        aria-label={$t.back}
         disabled={position <= 0}
         onclick={() => history.back()}
       >
         <Icon name="chevron-left" size={22} />
       </button>
       <button
-        aria-label="Forward"
+        aria-label={$t.forward}
         disabled={position >= furthest}
         onclick={() => history.forward()}
       >
@@ -55,8 +57,8 @@
 
   <div class="top" use:autoscroll>
     <div class="pinned">
-      <SidebarButton href="/app" icon="home">Home</SidebarButton>
-      <SidebarButton href="/app/search" icon="search">Search</SidebarButton>
+      <SidebarButton href="/app" icon="home">{$t.home}</SidebarButton>
+      <SidebarButton href="/app/search" icon="search">{$t.search}</SidebarButton>
       <SidebarButton
         href="/app/liked"
         icon="heart"
@@ -65,12 +67,12 @@
         ondropitem={(event) => {
           const track = droppedTrack(event);
           if (track) playlistModel.addToLiked(track);
-        }}>Liked songs</SidebarButton
+        }}>{$t.likedSongs}</SidebarButton
       >
     </div>
 
     <div class="playlists">
-      <div class="label">Playlists</div>
+      <div class="label">{$t.playlists}</div>
       {#each $playlists ?? [] as playlist (playlist.id)}
         <PlaylistButton {playlist} droppable={editableIds.has(playlist.id)} />
       {/each}

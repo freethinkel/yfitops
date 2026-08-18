@@ -11,6 +11,7 @@
   import { playerModel } from "$lib/modules/player/model";
   import * as trackDnd from "$lib/shared/helpers/track-dnd";
   import { playlistModel } from "../../model";
+  import { menuMessages } from "$lib/modules/i18n";
 
   interface Props {
     playlist: SpotifyApi.PlaylistObjectSimplified;
@@ -18,6 +19,7 @@
   }
   const { playlist, droppable = false }: Props = $props();
 
+  const t = menuMessages;
   const href = $derived(`/app/playlist/${playlist.id}`);
 
   let over = $state(false);
@@ -30,24 +32,24 @@
     const menu = await Menu.new({
       items: await Promise.all([
         IconMenuItem.new({
-          text: "Играть",
+          text: $t.play,
           icon: NativeIcon.RightFacingTriangle,
           action: () => playerModel.playContext(playlist.uri),
         }),
         IconMenuItem.new({
-          text: "Открыть",
+          text: $t.open,
           icon: NativeIcon.Folder,
           action: () => goto(href),
         }),
         PredefinedMenuItem.new({ item: "Separator" }),
         IconMenuItem.new({
-          text: "Копировать ссылку",
+          text: $t.copyLink,
           icon: NativeIcon.FollowLinkFreestanding,
           action: () =>
             navigator.clipboard.writeText(playlist.external_urls.spotify),
         }),
         IconMenuItem.new({
-          text: "Убрать из библиотеки",
+          text: $t.removeFromLibrary,
           icon: NativeIcon.Remove,
           action: () => playlistModel.unfollowPlaylist(playlist.id),
         }),

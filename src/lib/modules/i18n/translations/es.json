@@ -1,0 +1,101 @@
+{
+  "auth": {
+    "signingIn": "Iniciando sesión…",
+    "login": "Iniciar sesión con Spotify"
+  },
+  "sidebar": {
+    "back": "Atrás",
+    "forward": "Adelante",
+    "home": "Inicio",
+    "search": "Buscar",
+    "likedSongs": "Canciones que te gustan",
+    "playlists": "Listas de reproducción"
+  },
+  "home": {
+    "title": "Inicio",
+    "notice": "La página de inicio — Discover Weekly, tus mixes diarios — viene de la API interna de Spotify, que necesita un inicio de sesión propio.",
+    "enable": "Activar el inicio",
+    "retry": "Intentar de nuevo"
+  },
+  "lyrics": {
+    "notice": "Spotify solo entrega las letras al cliente de librespot, así que necesitan un inicio de sesión propio.",
+    "enable": "Activar las letras",
+    "loading": "Cargando letras…",
+    "failed": "No se pudieron cargar las letras: {error}",
+    "empty": "No hay letras para esta canción"
+  },
+  "player": {
+    "shuffle": "Aleatorio",
+    "repeat": "Repetir",
+    "previousTrack": "Canción anterior",
+    "playPause": "Reproducir/pausar",
+    "nextTrack": "Canción siguiente",
+    "seek": "Avanzar",
+    "toggleLyrics": "Mostrar las letras",
+    "toggleQueue": "Mostrar la cola",
+    "nowPlaying": "Reproduciendo",
+    "nextUp": "A continuación",
+    "nothingPlaying": "No se está reproduciendo nada",
+    "queueEmpty": "La cola está vacía",
+    "removeFromQueue": "Quitar de la cola",
+    "album": "Álbum",
+    "duration": "Duración",
+    "toggleFriends": "Mostrar la actividad de los amigos"
+  },
+  "search": {
+    "placeholder": "Canciones, artistas, álbumes",
+    "nothingFound": "No se encontró nada",
+    "artists": "Artistas",
+    "artist": "Artista",
+    "albums": "Álbumes",
+    "playlists": "Listas de reproducción",
+    "tracks": "Canciones"
+  },
+  "library": {
+    "play": "Reproducir",
+    "shuffle": "Aleatorio",
+    "likedSongs": "Canciones que te gustan",
+    "trackCount": {
+      "one": "{count} canción",
+      "many": "{count} canciones",
+      "other": "{count} canciones"
+    },
+    "albums": "Álbumes",
+    "follow": "Seguir",
+    "following": "Siguiendo",
+    "add": "Añadir",
+    "remove": "Eliminar",
+    "unfollow": "Dejar de seguir",
+    "deletePlaylist": "¿Eliminar la lista «{name}»?",
+    "like": "Añadir a favoritos",
+    "unlike": "Quitar de favoritos",
+    "columnTrack": "Canción",
+    "columnAlbum": "Álbum",
+    "columnArtist": "Artista",
+    "columnDuration": "Tiempo",
+    "columnAdded": "Añadida"
+  },
+  "menu": {
+    "play": "Reproducir",
+    "open": "Abrir",
+    "copyLink": "Copiar el enlace",
+    "removeFromLibrary": "Quitar de la biblioteca",
+    "addToPlaylist": "Añadir a una lista",
+    "addToQueue": "Añadir a la cola",
+    "removeFromPlaylist": "Quitar de la lista",
+    "goToAlbum": "Ir al álbum",
+    "goToArtist": "Ir al artista"
+  },
+  "profile": {
+    "theme": "Tema",
+    "language": "Idioma",
+    "logout": "Cerrar sesión"
+  },
+  "friends": {
+    "title": "Amigos",
+    "notice": "La actividad de los amigos viene de la API interna de Spotify, que necesita un inicio de sesión propio.",
+    "enable": "Activar la actividad de los amigos",
+    "empty": "Ahora mismo nadie está escuchando",
+    "failed": "No se pudo cargar la actividad de los amigos: {error}"
+  }
+}

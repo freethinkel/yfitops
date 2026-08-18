@@ -1,0 +1,100 @@
+{
+  "auth": {
+    "signingIn": "Anmeldung…",
+    "login": "Mit Spotify anmelden"
+  },
+  "sidebar": {
+    "back": "Zurück",
+    "forward": "Vorwärts",
+    "home": "Start",
+    "search": "Suche",
+    "likedSongs": "Lieblingssongs",
+    "playlists": "Playlists"
+  },
+  "home": {
+    "title": "Start",
+    "notice": "Die Startseite — Discover Weekly, deine täglichen Mixe — kommt von Spotifys interner API, die eine eigene Anmeldung braucht.",
+    "enable": "Startseite aktivieren",
+    "retry": "Erneut versuchen"
+  },
+  "lyrics": {
+    "notice": "Spotify gibt Songtexte nur an den librespot-Client heraus, dafür ist eine eigene Anmeldung nötig.",
+    "enable": "Songtexte aktivieren",
+    "loading": "Songtext wird geladen…",
+    "failed": "Songtext fehlgeschlagen: {error}",
+    "empty": "Kein Songtext für diesen Titel"
+  },
+  "player": {
+    "shuffle": "Zufallswiedergabe",
+    "repeat": "Wiederholen",
+    "previousTrack": "Vorheriger Titel",
+    "playPause": "Wiedergabe/Pause",
+    "nextTrack": "Nächster Titel",
+    "seek": "Spulen",
+    "toggleLyrics": "Songtext anzeigen",
+    "toggleQueue": "Warteschlange anzeigen",
+    "nowPlaying": "Läuft gerade",
+    "nextUp": "Als Nächstes",
+    "nothingPlaying": "Es läuft nichts",
+    "queueEmpty": "Die Warteschlange ist leer",
+    "removeFromQueue": "Aus der Warteschlange entfernen",
+    "album": "Album",
+    "duration": "Dauer",
+    "toggleFriends": "Freunde-Aktivität anzeigen"
+  },
+  "search": {
+    "placeholder": "Titel, Künstler, Alben",
+    "nothingFound": "Nichts gefunden",
+    "artists": "Künstler",
+    "artist": "Künstler",
+    "albums": "Alben",
+    "playlists": "Playlists",
+    "tracks": "Titel"
+  },
+  "library": {
+    "play": "Abspielen",
+    "shuffle": "Zufällig",
+    "likedSongs": "Lieblingssongs",
+    "trackCount": {
+      "one": "{count} Titel",
+      "other": "{count} Titel"
+    },
+    "albums": "Alben",
+    "follow": "Folgen",
+    "following": "Gefolgt",
+    "add": "Hinzufügen",
+    "remove": "Löschen",
+    "unfollow": "Nicht mehr folgen",
+    "deletePlaylist": "Playlist „{name}“ löschen?",
+    "like": "Zu Favoriten hinzufügen",
+    "unlike": "Aus Favoriten entfernen",
+    "columnTrack": "Titel",
+    "columnAlbum": "Album",
+    "columnArtist": "Künstler",
+    "columnDuration": "Zeit",
+    "columnAdded": "Hinzugefügt"
+  },
+  "menu": {
+    "play": "Abspielen",
+    "open": "Öffnen",
+    "copyLink": "Link kopieren",
+    "removeFromLibrary": "Aus der Bibliothek entfernen",
+    "addToPlaylist": "Zu Playlist hinzufügen",
+    "addToQueue": "Zur Warteschlange hinzufügen",
+    "removeFromPlaylist": "Aus der Playlist entfernen",
+    "goToAlbum": "Zum Album",
+    "goToArtist": "Zum Künstler"
+  },
+  "profile": {
+    "theme": "Design",
+    "language": "Sprache",
+    "logout": "Abmelden"
+  },
+  "friends": {
+    "title": "Freunde",
+    "notice": "Die Freunde-Aktivität kommt von Spotifys interner API, die eine eigene Anmeldung braucht.",
+    "enable": "Freunde-Aktivität aktivieren",
+    "empty": "Gerade hört niemand",
+    "failed": "Freunde-Aktivität fehlgeschlagen: {error}"
+  }
+}

@@ -6,12 +6,14 @@
   import { PlaylistInfo } from "../components/playlist-info";
   import { TrackList } from "../components/track-list";
   import { playlistModel } from "../model";
+  import { libraryMessages } from "$lib/modules/i18n";
 
   interface Props {
     id: string;
   }
   const { id }: Props = $props();
 
+  const t = libraryMessages;
   const playlist = $derived(playlistModel.playlist(id));
   const followed = $derived(playlistModel.isFollowed(id));
 
@@ -23,12 +25,12 @@
 
   // Spotify has no delete endpoint: dropping your own playlist is unfollowing
   // it, the label just has to say what it means to the user
-  const label = $derived(!$followed ? "Добавить" : mine ? "Удалить" : "Отписаться");
+  const label = $derived(!$followed ? $t.add : mine ? $t.remove : $t.unfollow);
 
   let busy = $state(false);
 
   const toggleFollow = async () => {
-    if ($followed && mine && !confirm(`Удалить плейлист «${$playlist?.name}»?`)) {
+    if ($followed && mine && !confirm($t.deletePlaylist({ name: $playlist?.name ?? "" }))) {
       return;
     }
 
@@ -41,10 +43,14 @@
       busy = false;
     }
   };
+  // a playlist may hold episodes too; the table only takes tracks
   const tracks = $derived(
     $playlist?.tracks.items
-      .map((item) => item.track)
-      .filter(Boolean) as SpotifyApi.TrackObjectFull[] | undefined,
+      .filter((item) => item.track)
+      .map((item) => ({
+        ...(item.track as SpotifyApi.TrackObjectFull),
+        added_at: item.added_at,
+      })),
   );
 </script>
 
@@ -55,7 +61,7 @@
 >
   <Button onclick={() => playerModel.playContext(`spotify:playlist:${id}`)}>
     <Icon name="play" size={16} />
-    Слушать
+    {$t.play}
   </Button>
 
   <Button
@@ -63,7 +69,7 @@
     onclick={() => playerModel.shuffleContext(`spotify:playlist:${id}`)}
   >
     <Icon name="shuffle" size={16} />
-    Вперемешку
+    {$t.shuffle}
   </Button>
 
   <Button

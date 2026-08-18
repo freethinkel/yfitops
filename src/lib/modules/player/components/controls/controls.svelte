@@ -1,7 +1,9 @@
 <script lang="ts">
   import { Icon } from "$lib/shared/components/icon";
   import { playerModel } from "../../model";
+  import { playerMessages } from "$lib/modules/i18n";
 
+  const t = playerMessages;
   const playerState = playerModel.$playerState;
 </script>
 
@@ -9,34 +11,34 @@
   <button
     class="mode"
     class:active={$playerState?.shuffle}
-    aria-label="Перемешать"
+    aria-label={$t.shuffle}
     aria-pressed={$playerState?.shuffle ?? false}
     onclick={() => playerModel.toggleShuffle()}
   >
     <Icon name="shuffle" size={20} />
   </button>
   <button
-    aria-label="Previous track"
+    aria-label={$t.previousTrack}
     onclick={() => playerModel.prevTrack()}
     disabled={!$playerState?.track_window.previous_tracks.length}
   >
     <Icon name="previous-track" size={24} />
   </button>
   <button
-    aria-label="Play/pause"
+    aria-label={$t.playPause}
     class="play"
     onclick={() => playerModel.togglePlaypause()}
   >
     <Icon name={($playerState?.paused ?? true) ? "play" : "pause"} size={28} />
   </button>
-  <button aria-label="Next track" onclick={() => playerModel.nextTrack()}>
+  <button aria-label={$t.nextTrack} onclick={() => playerModel.nextTrack()}>
     <Icon name="next-track" size={24} />
   </button>
 
   <button
     class="mode"
     class:active={($playerState?.repeat_mode ?? 0) > 0}
-    aria-label="Повтор"
+    aria-label={$t.repeat}
     onclick={() => playerModel.cycleRepeat()}
   >
     <Icon

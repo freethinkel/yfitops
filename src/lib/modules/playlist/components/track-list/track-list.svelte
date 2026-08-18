@@ -14,31 +14,91 @@
   import { menuIcon } from "$lib/shared/helpers/menu-icon";
   import { playlistModel } from "../../model";
   import Track from "../track/track.svelte";
+  import { libraryMessages, menuMessages } from "$lib/modules/i18n";
+
+  /** Playlists and liked songs know when a track was added; nothing else does. */
+  type TrackRow = SpotifyApi.TrackObjectFull & { added_at?: string };
 
   interface Props {
     /** undefined while loading — the table then draws itself as skeletons */
-    tracks?: readonly SpotifyApi.TrackObjectFull[];
+    tracks?: readonly TrackRow[];
     /** Set on a playlist page the user may edit — enables "remove from it". */
     removeFrom?: string;
   }
   const { tracks, removeFrom }: Props = $props();
 
+  const t = libraryMessages;
+  const tm = menuMessages;
   const loading = $derived(!tracks);
 
   type Column = {
     title: string;
-    sort?: (track: SpotifyApi.TrackObjectFull) => string | number;
+    width: string;
+    sort?: (track: TrackRow) => string | number;
   };
 
-  const COLUMNS: Column[] = [
-    { title: "#" },
-    { title: "" },
-    { title: "" },
-    { title: "Трек", sort: (track) => track.name.toLowerCase() },
-    { title: "Альбом", sort: (track) => track.album.name.toLowerCase() },
-    { title: "Артист", sort: (track) => track.artists[0]?.name.toLowerCase() ?? "" },
-    { title: "Время", sort: (track) => track.duration_ms },
-  ];
+  // the column only exists where the data does — an album has no added date
+  const hasAdded = $derived((tracks ?? []).some((track) => track.added_at));
+
+  /**
+   * Narrow panels drop columns instead of scrolling sideways: a horizontal
+   * scroller would become the sticky header's scrollport and unstick it.
+   */
+  let tableWidth = $state(Infinity);
+
+  const showArtist = $derived(tableWidth >= 420);
+  const showAlbum = $derived(tableWidth >= 560);
+  const showAdded = $derived(hasAdded && tableWidth >= 720);
+
+  const measure = (node: HTMLElement) => {
+    const observer = new ResizeObserver(([entry]) => {
+      tableWidth = entry.contentRect.width;
+    });
+
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  };
+
+  const COLUMNS: Column[] = $derived([
+    { title: "#", width: "34px" },
+    { title: "", width: "24px" },
+    { title: "", width: "26px" },
+    {
+      title: $t.columnTrack,
+      width: "minmax(120px, 3fr)",
+      sort: (track) => track.name.toLowerCase(),
+    },
+    ...(showAlbum
+      ? [
+          {
+            title: $t.columnAlbum,
+            width: "minmax(80px, 2fr)",
+            sort: (track: TrackRow) => track.album.name.toLowerCase(),
+          },
+        ]
+      : []),
+    ...(showArtist
+      ? [
+          {
+            title: $t.columnArtist,
+            width: "minmax(80px, 2fr)",
+            sort: (track: TrackRow) => track.artists[0]?.name.toLowerCase() ?? "",
+          },
+        ]
+      : []),
+    ...(showAdded
+      ? [
+          {
+            title: $t.columnAdded,
+            width: "96px",
+            sort: (track: TrackRow) => track.added_at ?? "",
+          },
+        ]
+      : []),
+    { title: $t.columnDuration, width: "72px", sort: (track) => track.duration_ms },
+  ]);
+
+  const template = $derived(COLUMNS.map(({ width }) => width).join(" "));
 
   // ponytail: asc → desc → original order, same cycle as the Flutter table
   let sort = $state<{ column: number; desc: boolean } | null>(null);
@@ -65,18 +125,96 @@
   );
 
   const playerState = playerModel.$playerState;
-  const currentId = $derived($playerState?.track_window.current_track.id);
+  /**
+   * Track relinking: what the SDK plays in this market can carry a different
+   * id than the one the playlist lists, and the original then sits in
+   * `linked_from`. Matching on one id alone left rows unhighlighted.
+   */
+  const currentIds = $derived.by(() => {
+    const track = $playerState?.track_window.current_track;
+    return new Set(
+      [track?.id, track?.linked_from?.id].filter((id): id is string => !!id),
+    );
+  });
 
   // ponytail: selection is state, not DOM focus — WebKit does not focus a
   // clicked div, so relying on focus meant having to Tab into the list first
   let selected = $state<number | null>(null);
   let body = $state<HTMLDivElement>();
 
-  const playingIndex = $derived(sorted.findIndex(({ id }) => id === currentId));
+  const playingIndex = $derived(sorted.findIndex(({ id }) => currentIds.has(id)));
+
+  /**
+   * Only the rows in view are in the DOM — a liked library runs to thousands
+   * of tracks, and the browser chokes long before that on real nodes. Rows are
+   * a fixed 24px, so the window is plain arithmetic and the scrollbar keeps
+   * its size through padding on the body.
+   */
+  const ROW_HEIGHT = 24;
+  const OVERSCAN = 12;
+
+  let scroller = $state<HTMLElement | null>(null);
+  let first = $state(0);
+  let windowSize = $state(60);
+
+  const last = $derived(Math.min(sorted.length, first + windowSize));
+  const windowed = $derived(sorted.slice(first, last));
+
+  const scrollableParent = (node: HTMLElement) => {
+    for (let el = node.parentElement; el; el = el.parentElement) {
+      if (/auto|scroll/.test(getComputedStyle(el).overflowY)) return el;
+    }
+
+    return document.scrollingElement as HTMLElement;
+  };
+
+  const virtualize = (node: HTMLElement) => {
+    scroller = scrollableParent(node);
+
+    const update = () => {
+      if (!scroller) return;
+
+      const above = scroller.getBoundingClientRect().top - node.getBoundingClientRect().top;
+
+      first = Math.max(0, Math.floor(above / ROW_HEIGHT) - OVERSCAN);
+      windowSize = Math.ceil(scroller.clientHeight / ROW_HEIGHT) + OVERSCAN * 2;
+    };
+
+    update();
+    scroller.addEventListener("scroll", update, { passive: true });
+
+    const observer = new ResizeObserver(update);
+    observer.observe(scroller);
+    observer.observe(node);
+
+    return {
+      destroy() {
+        scroller?.removeEventListener("scroll", update);
+        observer.disconnect();
+      },
+    };
+  };
+
+  /** The row's element, or nothing when it is outside the rendered window. */
+  const rowElement = (index: number) =>
+    body?.children[index - first] as HTMLElement | undefined;
 
   const select = (index: number) => {
     selected = Math.max(0, Math.min(index, sorted.length - 1));
-    body?.children[selected]?.scrollIntoView({ block: "nearest" });
+
+    const element = rowElement(selected);
+    if (element) return element.scrollIntoView({ block: "nearest" });
+
+    // outside the window there is nothing to scroll to, so aim by arithmetic
+    if (!body || !scroller) return;
+
+    const bodyTop =
+      body.getBoundingClientRect().top -
+      scroller.getBoundingClientRect().top +
+      scroller.scrollTop;
+
+    scroller.scrollTop =
+      bodyTop + selected * ROW_HEIGHT - scroller.clientHeight / 2;
   };
 
   const onKeydown = (event: KeyboardEvent) => {
@@ -106,7 +244,7 @@
 
     // the row itself knows what a click means — no need to repeat it here
     if (event.key === "Enter") {
-      (body?.children[selected] as HTMLElement | undefined)?.click();
+      rowElement(selected)?.click();
     }
     if (event.key === "l") playlistModel.toggleLike(track);
   };
@@ -123,18 +261,18 @@
     const menu = await Menu.new({
       items: await Promise.all([
         IconMenuItem.new({
-          text: "Играть",
+          text: $tm.play,
           icon: NativeIcon.RightFacingTriangle,
           action: () =>
             playerModel.play(sorted.slice(index).map(({ uri }) => uri)),
         }),
         IconMenuItem.new({
-          text: liked ? "Удалить из любимых" : "Добавить в любимые",
+          text: liked ? $t.unlike : $t.like,
           icon: liked ? NativeIcon.Remove : NativeIcon.Add,
           action: () => playlistModel.toggleLike(track),
         }),
         Submenu.new({
-          text: "Добавить в плейлист",
+          text: $tm.addToPlaylist,
           enabled: $editablePlaylists.length > 0,
           items: await Promise.all(
             $editablePlaylists.map(async (playlist) => {
@@ -151,14 +289,14 @@
           ),
         }),
         IconMenuItem.new({
-          text: "В очередь",
+          text: $tm.addToQueue,
           icon: NativeIcon.ListView,
           action: () => playerModel.addToQueue(track.uri),
         }),
         ...(removeFrom
           ? [
               IconMenuItem.new({
-                text: "Удалить из плейлиста",
+                text: $tm.removeFromPlaylist,
                 icon: NativeIcon.Remove,
                 action: () => playlistModel.removeFromPlaylist(removeFrom, track.uri),
               }),
@@ -166,20 +304,20 @@
           : []),
         PredefinedMenuItem.new({ item: "Separator" }),
         IconMenuItem.new({
-          text: "Перейти к альбому",
+          text: $tm.goToAlbum,
           icon: NativeIcon.Folder,
           enabled: !!track.album.id,
           action: () => goto(`/app/album/${track.album.id}`),
         }),
         IconMenuItem.new({
-          text: "Перейти к артисту",
+          text: $tm.goToArtist,
           icon: NativeIcon.User,
           enabled: !!track.artists[0]?.id,
           action: () => goto(`/app/artist/${track.artists[0].id}`),
         }),
         PredefinedMenuItem.new({ item: "Separator" }),
         IconMenuItem.new({
-          text: "Копировать ссылку",
+          text: $tm.copyLink,
           icon: NativeIcon.FollowLinkFreestanding,
           action: () =>
             navigator.clipboard.writeText(track.external_urls.spotify),
@@ -193,7 +331,12 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="table">
+<div
+  class="table"
+  use:measure
+  style:--track-columns={template}
+  style:--row-height="{ROW_HEIGHT}px"
+>
   <div class="head">
     {#each COLUMNS as column, index (column.title + index)}
       <button
@@ -214,7 +357,14 @@
     {/each}
   </div>
 
-  <div class="body" role="rowgroup" bind:this={body}>
+  <div
+    class="body"
+    role="rowgroup"
+    bind:this={body}
+    use:virtualize
+    style:padding-top="{first * ROW_HEIGHT}px"
+    style:padding-bottom="{(sorted.length - last) * ROW_HEIGHT}px"
+  >
     {#if loading}
       {#each Array(24) as _, index (index)}
         <div class="row skeleton_row" class:odd={index % 2 === 1}>
@@ -222,19 +372,31 @@
           <span class="cell"></span>
           <span class="cell"><Skeleton width="1.25rem" height="1.25rem" /></span>
           <span class="cell"><Skeleton width="60%" height="0.625rem" /></span>
-          <span class="cell"><Skeleton width="45%" height="0.625rem" /></span>
-          <span class="cell"><Skeleton width="50%" height="0.625rem" /></span>
+          {#if showAlbum}
+            <span class="cell"><Skeleton width="45%" height="0.625rem" /></span>
+          {/if}
+          {#if showArtist}
+            <span class="cell"><Skeleton width="50%" height="0.625rem" /></span>
+          {/if}
+          {#if showAdded}
+            <span class="cell"><Skeleton width="3rem" height="0.625rem" /></span>
+          {/if}
           <span class="cell"><Skeleton width="2rem" height="0.625rem" /></span>
         </div>
       {/each}
     {/if}
 
-    {#each sorted as track, index (track.id + index)}
+    {#each windowed as track, offset (track.id + first + offset)}
+      {@const index = first + offset}
       <Track
         {track}
         {index}
+        addedAt={track.added_at}
+        {showAdded}
+        {showAlbum}
+        {showArtist}
         liked={likedIds.has(track.id)}
-        playing={track.id === currentId}
+        playing={currentIds.has(track.id)}
         selected={index === selected}
         onselect={() => (selected = index)}
         onplay={() => playerModel.play(sorted.slice(index).map(({ uri }) => uri))}
@@ -246,8 +408,10 @@
 </div>
 
 <style>
+  /* --track-columns is set inline from the visible columns, so the header and
+     the rows can never drift apart; the duration column is 72px rather than
+     the 56px a time needs, because the header carries a sort chevron too */
   .table {
-    --track-columns: 34px 24px 26px minmax(120px, 3fr) minmax(80px, 2fr) minmax(80px, 2fr) 56px;
     font-variant-numeric: tabular-nums;
   }
   .head {
@@ -256,7 +420,7 @@
     position: sticky;
     top: 0;
     z-index: 1;
-    height: 24px;
+    height: var(--row-height);
     background: oklch(from var(--color-text) l c h / 0.12);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid oklch(from var(--color-text) l c h / 0.12);
@@ -283,7 +447,7 @@
     display: grid;
     grid-template-columns: var(--track-columns);
     align-items: center;
-    height: 24px;
+    height: var(--row-height);
 
     &.odd {
       background: oklch(from var(--color-text) l c h / 0.04);
