@@ -1,0 +1,37 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": [
+    "main",
+    "oauth_window"
+  ],
+  "permissions": [
+    "core:default",
+    "core:event:allow-emit",
+    "core:event:allow-listen",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:webview:allow-webview-close",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://api-partner.spotify.com/*"
+        },
+        {
+          "url": "https://clienttoken.spotify.com/*"
+        },
+        {
+          "url": "https://open.spotify.com/*"
+        },
+        {
+          "url": "https://open.spotifycdn.com/*"
+        },
+        {
+          "url": "https://spclient.wg.spotify.com/*"
+        }
+      ]
+    }
+  ]
+}
