@@ -3,9 +3,10 @@ name: build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
-# a newer push to main makes the running build pointless
+# a newer push to the same ref makes the running build pointless
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
@@ -13,8 +14,21 @@ concurrency:
 jobs:
   macos:
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
+
+      # the dmg takes its name from tauri.conf.json, not from the tag, so a
+      # disagreement would publish v0.2.0 containing Yfitops_0.1.0.dmg
+      - name: Check the tag against the app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME disagrees with tauri.conf.json version $version"
+            exit 1
+          fi
 
       - uses: pnpm/action-setup@v4
         with:
@@ -33,11 +47,28 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # tauri build runs `pnpm build` itself via beforeBuildCommand
+      # tauri build runs `pnpm build` itself via beforeBuildCommand.
+      # Both are public identifiers baked into the bundle, not secrets — an own
+      # client id only lifts the Web API quota librespot's public one shares.
+      # Unset means the code falls back to that public one.
       - run: pnpm tauri build
+        env:
+          SPT_CLIENT_ID: ${{ vars.SPT_CLIENT_ID }}
+          SPT_REDIRECT_URI: ${{ vars.SPT_REDIRECT_URI }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: yfitops-macos-arm64
           path: src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            src-tauri/target/release/bundle/dmg/*.dmg \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes 'Apple Silicon, unsigned. macOS refuses to open it until you clear the quarantine flag: `xattr -cr /Applications/Yfitops.app`'
