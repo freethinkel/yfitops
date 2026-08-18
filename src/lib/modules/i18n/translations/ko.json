@@ -95,5 +95,11 @@
     "enable": "친구 활동 사용",
     "empty": "지금 듣고 있는 친구가 없습니다",
     "failed": "친구 활동을 불러오지 못했습니다: {error}"
+  },
+  "user": {
+    "publicPlaylists": "공개 플레이리스트",
+    "followers": {
+      "other": "팔로워 {count}명"
+    }
   }
 }

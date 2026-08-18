@@ -96,5 +96,12 @@
     "enable": "Freunde-Aktivität aktivieren",
     "empty": "Gerade hört niemand",
     "failed": "Freunde-Aktivität fehlgeschlagen: {error}"
+  },
+  "user": {
+    "publicPlaylists": "Öffentliche Playlists",
+    "followers": {
+      "one": "{count} Follower",
+      "other": "{count} Follower"
+    }
   }
 }

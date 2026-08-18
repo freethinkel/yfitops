@@ -97,5 +97,13 @@
     "enable": "Activer l'activité des amis",
     "empty": "Personne n'écoute pour le moment",
     "failed": "Échec du chargement de l'activité des amis : {error}"
+  },
+  "user": {
+    "publicPlaylists": "Playlists publiques",
+    "followers": {
+      "one": "{count} abonné",
+      "many": "{count} abonnés",
+      "other": "{count} abonnés"
+    }
   }
 }
