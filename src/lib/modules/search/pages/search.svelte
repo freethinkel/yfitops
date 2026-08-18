@@ -3,10 +3,12 @@
   import { Section } from "$lib/modules/home/components/section";
   import { TrackList } from "$lib/modules/playlist/components/track-list";
   import { Card } from "$lib/shared/components/card";
-  import { Icon } from "$lib/shared/components/icon";
+  import { SearchInput } from "$lib/shared/components/search-input";
   import { routeForLink } from "$lib/shared/helpers/spotify-link";
   import { searchModel } from "../model";
+  import { searchMessages } from "$lib/modules/i18n";
 
+  const t = searchMessages;
   const query = searchModel.$query;
   const results = searchModel.$results;
   const isPending = searchModel.$isPending;
@@ -33,29 +35,21 @@
   );
 </script>
 
-<div class="search">
-  <Icon name="search" size={16} />
-  <input
-    type="search"
-    placeholder="Songs, artists, albums"
-    value={$query}
-    oninput={(event) => onInput(event.currentTarget.value)}
-  />
-</div>
+<SearchInput placeholder={$t.placeholder} value={$query} oninput={onInput} />
 
 {#if $results}
   {#if isEmpty}
     {#if !$isPending}
-      <p class="empty">Nothing found</p>
+      <p class="empty">{$t.nothingFound}</p>
     {/if}
   {:else}
     {#if $results.artists.length}
-      <Section title="Артисты" loaded empty={false}>
+      <Section title={$t.artists} loaded empty={false}>
         {#each $results.artists as artist (artist.id)}
           <Card
             round
             title={artist.name}
-            subtitle={artist.genres?.[0] ?? "Артист"}
+            subtitle={artist.genres?.[0] ?? $t.artist}
             image={artist.images?.[0]?.url}
             onclick={() => goto(`/app/artist/${artist.id}`)}
           />
@@ -64,7 +58,7 @@
     {/if}
 
     {#if $results.albums.length}
-      <Section title="Альбомы" loaded empty={false}>
+      <Section title={$t.albums} loaded empty={false}>
         {#each $results.albums as album (album.id)}
           <Card
             icon="playlist"
@@ -78,7 +72,7 @@
     {/if}
 
     {#if $results.playlists.length}
-      <Section title="Плейлисты" loaded empty={false}>
+      <Section title={$t.playlists} loaded empty={false}>
         {#each $results.playlists as playlist (playlist.id)}
           <Card
             icon="playlist"
@@ -92,7 +86,7 @@
     {/if}
 
     {#if $results.tracks.length}
-      <h2 class="tracks_title">Треки</h2>
+      <h2 class="tracks_title">{$t.tracks}</h2>
       <TrackList tracks={$results.tracks} />
     {/if}
   {/if}
@@ -105,36 +99,6 @@
     margin: 0.625rem 0 0;
     padding: 0 1rem;
     font-size: 1.03rem;
-  }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0.625rem;
-    padding: 0 0.625rem;
-    height: 34px;
-    border-radius: var(--border-radius);
-    background: oklch(from var(--color-text) l c h / 0.04);
-    border: 1px solid oklch(from var(--color-text) l c h / 0.12);
-    color: oklch(from var(--color-text) l c h / 0.6);
-
-    &:focus-within {
-      border-color: var(--color-accent);
-    }
-  }
-  input {
-    flex: 1;
-    min-width: 0;
-    appearance: none;
-    border: none;
-    background: none;
-    outline: none;
-    font-size: 0.94rem;
-    color: var(--color-text);
-
-    &::-webkit-search-cancel-button {
-      appearance: none;
-    }
   }
   .empty {
     margin: 0;
