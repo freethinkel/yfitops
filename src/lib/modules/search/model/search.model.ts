@@ -50,7 +50,12 @@ onMount($results, () => {
           const track = await spotifyApi.getTrack(link.id);
           if (request !== latest) return;
 
-          $results.set({ tracks: [track], artists: [], albums: [], playlists: [] });
+          $results.set({
+            tracks: [track],
+            artists: [],
+            albums: [],
+            playlists: [],
+          });
           return;
         }
 

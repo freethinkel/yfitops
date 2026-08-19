@@ -224,7 +224,6 @@ export const pathfinderQuery = async <T>({
   try {
     return await send(readHashes()[operationName] ?? fallbackHash);
   } catch (err) {
-
     if (!(err as { stale?: boolean }).stale) throw err;
 
     // A new web player build shipped — pick the fresh hash up and retry once.

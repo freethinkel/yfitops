@@ -51,7 +51,8 @@ const subtitleOf = (data: NonNullable<RawItem["content"]>["data"]) => {
 
 const toItem = (raw: RawItem): FeedItem | null => {
   const data = raw.content?.data;
-  if (!data?.uri || !data.name || !KINDS.has(data.__typename ?? "")) return null;
+  if (!data?.uri || !data.name || !KINDS.has(data.__typename ?? ""))
+    return null;
 
   return {
     uri: data.uri,

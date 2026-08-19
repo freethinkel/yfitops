@@ -55,7 +55,9 @@ const toFriend = (raw: RawFriend): Friend | null => {
   };
 };
 
-export const fetchBuddyList = async (accessToken: string): Promise<Friend[]> => {
+export const fetchBuddyList = async (
+  accessToken: string,
+): Promise<Friend[]> => {
   const response = await fetch(URL, {
     headers: {
       authorization: `Bearer ${accessToken}`,

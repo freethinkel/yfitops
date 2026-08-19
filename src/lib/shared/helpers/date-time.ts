@@ -17,7 +17,9 @@ const dateFormat = new Intl.DateTimeFormat(undefined, {
 
 export const formatDate = (iso: string) => dateFormat.format(new Date(iso));
 
-const relativeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+const relativeFormat = new Intl.RelativeTimeFormat(undefined, {
+  numeric: "auto",
+});
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["day", 86_400_000],
