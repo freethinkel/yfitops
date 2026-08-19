@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Cover } from "$lib/shared/components/cover";
+  import { Description } from "$lib/shared/components/description";
 
   interface Props {
     title: string;
@@ -23,7 +24,7 @@
   <Cover url={image} size={128} {icon} />
   <span class="title">{title}</span>
   {#if subtitle}
-    <span class="subtitle">{subtitle}</span>
+    <span class="subtitle"><Description text={subtitle} links={false} /></span>
   {/if}
 </button>
 

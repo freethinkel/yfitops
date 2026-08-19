@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { sanitizeDescription } from "$lib/shared/helpers/sanitize";
   import { Cover } from "$lib/shared/components/cover";
+  import { Description } from "$lib/shared/components/description";
 
   interface Props {
     children?: Snippet;
@@ -11,7 +11,6 @@
   }
   const { image = "", name = "", description = "", children }: Props = $props();
 
-  const html = $derived(sanitizeDescription(description));
 </script>
 
 <div class="wrapper">
@@ -20,7 +19,7 @@
   <div class="info">
     <h1>{name}</h1>
     {#if description}
-      <p>{@html html}</p>
+      <p><Description text={description} /></p>
     {/if}
 
     {#if children}
