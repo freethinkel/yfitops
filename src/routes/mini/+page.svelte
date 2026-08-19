@@ -4,6 +4,7 @@
   import { Cover } from "$lib/shared/components/cover";
   import { Icon } from "$lib/shared/components/icon";
   import { Slider } from "$lib/shared/components/slider";
+  import { formatDuration } from "$lib/shared/helpers/date-time";
   import {
     MINI_COMMAND,
     MINI_HELLO,
@@ -19,6 +20,7 @@
     name: "",
     artist: "",
     paused: true,
+    liked: false,
     position: 0,
     duration: 0,
   });
@@ -54,10 +56,7 @@
       <Icon name="expand" size={16} />
     </button>
 
-    <div class="meta">
-      <div class="name">{state.name}</div>
-      <div class="artist">{state.artist}</div>
-    </div>
+    <div class="artist">{state.artist}</div>
 
     <div class="controls">
       <button
@@ -65,7 +64,7 @@
         aria-label="Previous track"
         onclick={() => send({ kind: "prev" })}
       >
-        <Icon name="previous-track" size={26} />
+        <Icon name="previous-track" size={32} />
       </button>
       <button
         class="play"
@@ -73,23 +72,39 @@
         aria-label="Play/pause"
         onclick={() => send({ kind: "toggle" })}
       >
-        <Icon name={state.paused ? "play" : "pause"} size={36} />
+        <Icon name={state.paused ? "play" : "pause"} size={48} />
       </button>
       <button
         type="button"
         aria-label="Next track"
         onclick={() => send({ kind: "next" })}
       >
-        <Icon name="next-track" size={26} />
+        <Icon name="next-track" size={32} />
       </button>
     </div>
 
-    <div class="slider">
-      <Slider
-        value={progress}
-        onchange={(value) =>
-          send({ kind: "seek", position: value * state.duration })}
-      />
+    <div class="name">{state.name}</div>
+
+    <div class="bar">
+      <span class="time">{formatDuration(state.position)}</span>
+      <div class="slider">
+        <Slider
+          value={progress}
+          onchange={(value) =>
+            send({ kind: "seek", position: value * state.duration })}
+        />
+      </div>
+      <span class="time">{formatDuration(state.duration)}</span>
+      <button
+        class="like"
+        class:active={state.liked}
+        type="button"
+        aria-label="Like"
+        aria-pressed={state.liked}
+        onclick={() => send({ kind: "like" })}
+      >
+        <Icon name={state.liked ? "heart" : "heart-outline"} size={18} />
+      </button>
     </div>
   </div>
 </div>
@@ -113,7 +128,8 @@
   }
 
   /* the controls sit on the artwork, so they need their own ground to stay
-     legible whatever the cover looks like */
+     legible whatever the cover looks like — blurring the cover underneath
+     rather than only darkening it keeps busy artwork from fighting the text */
   .overlay {
     position: absolute;
     inset: 0;
@@ -122,24 +138,51 @@
     align-items: center;
     justify-content: center;
     gap: 0.75rem;
-    padding: 0.75rem;
-    background: rgba(0, 0, 0, 0.45);
+    padding: 0.75rem 0.75rem 2.25rem;
     color: #fff;
+
+    /* the resting state is the plain cover: no veil, no blur. Both are
+       animated rather than switched — `var(--transition)` is 100ms, which on
+       something this large reads as a flash */
+    background: rgba(0, 0, 0, 0);
+    backdrop-filter: blur(0px);
+    -webkit-backdrop-filter: blur(0px);
     opacity: 0;
-    transition: var(--transition);
+    transition:
+      opacity 0.22s ease,
+      background-color 0.22s ease,
+      backdrop-filter 0.22s ease,
+      -webkit-backdrop-filter 0.22s ease;
   }
   .mini:hover .overlay {
     opacity: 1;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
   }
-  .meta {
-    /* the window is 260px wide and the title can be anything, so both lines
-       are cut rather than allowed to push the layout around */
-    max-width: 100%;
-    text-align: center;
+
+  /* the controls settle in a touch later than the veil, so the blur reads as
+     the thing they arrive on */
+  .overlay > * {
+    transform: translateY(6px);
+    transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1) 0.04s;
   }
+  .mini:hover .overlay > * {
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .overlay,
+    .overlay > * {
+      transition-duration: 0.01ms;
+    }
+  }
+  /* the window is 260px wide and a title can be anything, so both lines are
+     cut rather than allowed to push the layout around */
   .name,
   .artist {
     max-width: 100%;
+    text-align: center;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -150,25 +193,39 @@
     line-height: 1.2;
   }
   .artist {
-    margin-top: 0.125rem;
-    font-size: 0.75rem;
-    opacity: 0.75;
+    font-size: 0.81rem;
+    opacity: 0.85;
   }
   .controls {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 1rem;
   }
-  .slider {
+  .bar {
     position: absolute;
     left: 0.75rem;
     right: 0.75rem;
-    bottom: 0.75rem;
+    bottom: 0.625rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .time {
+    font-size: 0.69rem;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+  }
+  .slider {
+    flex: 1;
+    min-width: 0;
 
     /* the slider paints itself from the app's tokens, and the overlay is dark
        whatever the theme is — so the tokens are redefined for this corner */
     --color-text: #fff;
     --color-accent: #fff;
+  }
+  .like.active {
+    color: var(--color-accent);
   }
   .restore {
     position: absolute;
@@ -194,7 +251,7 @@
     }
   }
   .play {
-    width: 2.75rem;
-    height: 2.75rem;
+    width: 3.25rem;
+    height: 3.25rem;
   }
 </style>

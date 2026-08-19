@@ -141,6 +141,27 @@ export const artist = (id: string) =>
     return { artist, topTracks: [...top.tracks], albums: [...albums.items] };
   });
 
+/**
+ * The API wrapper sends the ids as a bare array body, which both library
+ * endpoints now answer with a 400 — they want an object. The ids go in the
+ * query instead, which they have always accepted and needs no body at all.
+ */
+const saveToLibrary = async (
+  kind: "tracks" | "albums",
+  method: "PUT" | "DELETE",
+  ids: string[],
+) => {
+  const response = await fetch(
+    `https://api.spotify.com/v1/me/${kind}?ids=${ids.join(",")}`,
+    {
+      method,
+      headers: { Authorization: `Bearer ${await authModel.ensureToken()}` },
+    },
+  );
+
+  if (!response.ok) throw new Error(`saved ${kind}: HTTP ${response.status}`);
+};
+
 /** Optimistic: the star flips first, the API call follows. */
 export const toggleLike = async (track: SpotifyApi.TrackObjectFull) => {
   // local files and episodes carry no track id, and `ids=` is a 400
@@ -156,9 +177,7 @@ export const toggleLike = async (track: SpotifyApi.TrackObjectFull) => {
   );
 
   try {
-    await (isLiked
-      ? spotifyApi.removeFromMySavedTracks([track.id])
-      : spotifyApi.addToMySavedTracks([track.id]));
+    await saveToLibrary("tracks", isLiked ? "DELETE" : "PUT", [track.id]);
   } catch (err) {
     // the star was flipped ahead of the server: put it back rather than lie
     $likedSongs.set(liked);
@@ -206,11 +225,7 @@ export const toggleSavedAlbum = async (
   $saved.set(!saved);
 
   try {
-    if (saved) {
-      await spotifyApi.removeFromMySavedAlbums([id]);
-    } else {
-      await spotifyApi.addToMySavedAlbums([id]);
-    }
+    await saveToLibrary("albums", saved ? "DELETE" : "PUT", [id]);
   } catch (err) {
     $saved.set(saved);
     throw err;

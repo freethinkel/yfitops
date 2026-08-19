@@ -19,11 +19,12 @@ export type MiniState = {
   name: string;
   artist: string;
   paused: boolean;
+  liked: boolean;
   /** Milliseconds, both — the companion turns them into the slider's 0..1. */
   position: number;
   duration: number;
 };
 
 export type MiniCommand =
-  | { kind: "toggle" | "next" | "prev" | "restore" }
+  | { kind: "toggle" | "next" | "prev" | "restore" | "like" }
   | { kind: "seek"; position: number };

@@ -17,7 +17,7 @@
   /** Only text that does not fit scrolls; the rest stays put. */
   $effect(() => {
     // read `text` so the measurement redoes itself on every track change
-    text;
+    void text;
 
     if (!outerEl || !innerEl) return;
 

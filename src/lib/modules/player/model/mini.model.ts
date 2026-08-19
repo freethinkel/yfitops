@@ -12,11 +12,13 @@ import {
   type MiniState,
 } from "./mini-bridge";
 import {
+  $currentLiked,
   $playerState,
   $position,
   nextTrack,
   prevTrack,
   seek,
+  toggleCurrentLike,
   togglePlaypause,
 } from "./player.model";
 
@@ -30,6 +32,7 @@ const stateOf = (): MiniState => {
   const track = state?.track_window.current_track;
 
   return {
+    liked: $currentLiked.get(),
     cover: track?.album.images[0]?.url ?? "",
     name: track?.name ?? "",
     artist: track?.artists.map((artist) => artist.name).join(", ") ?? "",
@@ -100,12 +103,14 @@ onMount($playerState, () => {
 
   const stopState = $playerState.subscribe(publishWhileOpen);
   const stopPosition = $position.subscribe(publishWhileOpen);
+  const stopLiked = $currentLiked.subscribe(publishWhileOpen);
 
   const commands = listen<MiniCommand>(MINI_COMMAND, ({ payload }) => {
     if (payload.kind === "toggle") togglePlaypause();
     else if (payload.kind === "next") nextTrack();
     else if (payload.kind === "prev") prevTrack();
     else if (payload.kind === "seek") seek(payload.position);
+    else if (payload.kind === "like") toggleCurrentLike();
     else if (payload.kind === "restore") restore();
   });
 
@@ -115,6 +120,7 @@ onMount($playerState, () => {
   return () => {
     stopState();
     stopPosition();
+    stopLiked();
     commands.then((off) => off());
     hello.then((off) => off());
   };

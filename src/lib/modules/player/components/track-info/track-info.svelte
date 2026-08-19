@@ -3,8 +3,11 @@
   import { Icon } from "$lib/shared/components/icon";
   import { Marquee } from "$lib/shared/components/marquee";
   import { miniModel, playerModel } from "../../model";
+  import { libraryMessages } from "$lib/modules/i18n";
 
+  const t = libraryMessages;
   const playerState = playerModel.$playerState;
+  const liked = playerModel.$currentLiked;
   const track = $derived($playerState?.track_window.current_track);
 </script>
 
@@ -29,6 +32,19 @@
       />
     </div>
   </div>
+
+  {#if track}
+    <button
+      class="like"
+      class:active={$liked}
+      type="button"
+      title={$liked ? $t.unlike : $t.like}
+      aria-pressed={$liked}
+      onclick={() => playerModel.toggleCurrentLike()}
+    >
+      <Icon name={$liked ? "heart" : "heart-outline"} size={15} />
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -67,6 +83,24 @@
     color: #fff;
     opacity: 0;
     transition: var(--transition);
+  }
+  .like {
+    appearance: none;
+    border: none;
+    background: none;
+    padding: 0.25rem;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    color: oklch(from var(--color-text) l c h / 0.6);
+    transition: var(--transition);
+
+    &:hover {
+      color: var(--color-text);
+    }
+    &.active {
+      color: var(--color-accent);
+    }
   }
   .track_info {
     display: flex;
