@@ -11,12 +11,67 @@ import { getAccentColorFromImage } from "$lib/shared/helpers/color";
 import { loadWebSdk } from "./web-sdk";
 
 export const $playerState = atom<Spotify.PlaybackState | null>(null);
+/**
+ * Ticks twice a second, so it lives apart from `$playerState` — otherwise every
+ * component watching the track would re-render at the same rate.
+ */
+export const $position = atom(0);
 export const $trackColor = atom("transparent");
 
 let player: Spotify.Player | null = null;
 let deviceId = "";
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let colorSource = "";
+
+let announceDevice!: (id: string) => void;
+let registered = new Promise<string>((resolve) => (announceDevice = resolve));
+
+/**
+ * The track list draws itself from cache, so it is clickable long before the
+ * SDK has fetched its script and registered a device. Sending the empty id
+ * that early is what the Web API answers with a 404, so playback waits for the
+ * real one instead. The timeout keeps a player that never arrives — no
+ * Premium, no output device — from swallowing the click in silence.
+ */
+const DEVICE_TIMEOUT = 10_000;
+
+const device = () =>
+  Promise.race([
+    registered,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("The Spotify player never became ready")),
+        DEVICE_TIMEOUT,
+      ),
+    ),
+  ]);
+
+/**
+ * Shuffle and repeat answer 200 with an opaque string where the docs promise
+ * an empty 204, and the API wrapper logs a parse failure for every one of
+ * them. Going over fetch skips that, and turns a failure into a readable
+ * error instead of a bare XMLHttpRequest. Global fetch on purpose — this is
+ * the public API, which sends CORS headers; the Tauri plugin is only needed
+ * for the internal hosts.
+ */
+const playerCommand = async (path: string, params: Record<string, string>) => {
+  const query = new URLSearchParams(params);
+  const response = await fetch(
+    `https://api.spotify.com/v1/me/player/${path}?${query}`,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${await authModel.ensureToken()}` },
+    },
+  );
+
+  if (!response.ok) throw new Error(`player ${path}: HTTP ${response.status}`);
+};
+
+const setShuffle = (state: boolean, device: string) =>
+  playerCommand("shuffle", { state: String(state), device_id: device });
+
+const setRepeat = (state: "off" | "context" | "track", device: string) =>
+  playerCommand("repeat", { state, device_id: device });
 
 export const togglePlaypause = () => player?.togglePlay();
 export const nextTrack = () => {
@@ -67,7 +122,11 @@ const patchState = (patch: Partial<Spotify.PlaybackState>) => {
 /** Rapid clicks must reach the server in the order they were made. */
 let toggleChain: Promise<unknown> = Promise.resolve();
 
-const sendToggle = <T>(key: ToggleKey, value: boolean | number, send: () => Promise<T>) => {
+const sendToggle = <T>(
+  key: ToggleKey,
+  value: boolean | number,
+  send: () => Promise<T>,
+) => {
   pending.set(key, value);
   patchState({ [key]: value } as Partial<Spotify.PlaybackState>);
 
@@ -85,9 +144,7 @@ export const toggleShuffle = () => {
 
   const shuffle = !state.shuffle;
 
-  return sendToggle("shuffle", shuffle, () =>
-    spotifyApi.setShuffle(shuffle, { device_id: deviceId }),
-  );
+  return sendToggle("shuffle", shuffle, () => setShuffle(shuffle, deviceId));
 };
 
 /** off → context → track → off, the order the native clients cycle through. */
@@ -96,7 +153,7 @@ export const cycleRepeat = () => {
   const next = (["context", "track", "off"] as const)[mode];
 
   return sendToggle("repeat_mode", (mode + 1) % 3, () =>
-    spotifyApi.setRepeat(next, { device_id: deviceId }),
+    setRepeat(next, deviceId),
   );
 };
 
@@ -104,12 +161,16 @@ export const prevTrack = () => player?.previousTrack();
 
 export const seek = (position: number) => {
   player?.seek(position);
-
-  const state = $playerState.get();
-  if (state) $playerState.set({ ...state, position });
+  $position.set(position);
 };
 
-const startPlayback = (uris: string[]) => spotifyApi.play({ uris, device_id: deviceId });
+export const seekBy = (deltaMs: number) => {
+  const duration = $playerState.get()?.duration ?? 0;
+  seek(Math.min(Math.max($position.get() + deltaMs, 0), duration));
+};
+
+const startPlayback = (uris: string[], id: string) =>
+  spotifyApi.play({ uris, device_id: id });
 
 /**
  * With shuffle on the API picks a random entry from `uris` instead of the
@@ -119,34 +180,39 @@ const startPlayback = (uris: string[]) => spotifyApi.play({ uris, device_id: dev
  * native clients do.
  */
 export const play = async (uris: string[]) => {
+  const id = await device();
   const shuffled = $playerState.get()?.shuffle ?? false;
 
-  if (shuffled) await spotifyApi.setShuffle(false, { device_id: deviceId });
-  await startPlayback(uris);
-  if (shuffled) await spotifyApi.setShuffle(true, { device_id: deviceId });
+  if (shuffled) await setShuffle(false, id);
+  await startPlayback(uris, id);
+  if (shuffled) await setShuffle(true, id);
 };
 
 /** Plays a whole playlist, album or artist by its uri. */
 /** Same for a bare list of tracks — liked songs have no context uri. */
 export const playShuffled = async (uris: string[]) => {
+  const id = await device();
+
   patchState({ shuffle: true });
   pending.set("shuffle", true);
 
-  await spotifyApi.setShuffle(true, { device_id: deviceId });
-  await startPlayback(uris);
+  await setShuffle(true, id);
+  await startPlayback(uris, id);
 };
 
 /** Starts a playlist or album shuffled, the way the native clients do. */
 export const shuffleContext = async (uri: string) => {
+  const id = await device();
+
   patchState({ shuffle: true });
   pending.set("shuffle", true);
 
-  await spotifyApi.setShuffle(true, { device_id: deviceId });
+  await setShuffle(true, id);
   await playContext(uri);
 };
 
-export const playContext = (uri: string) =>
-  spotifyApi.play({ context_uri: uri, device_id: deviceId });
+export const playContext = async (uri: string) =>
+  spotifyApi.play({ context_uri: uri, device_id: await device() });
 
 export type QueueTrack = {
   uri: string;
@@ -224,7 +290,9 @@ const hydrate = async (tracks: QueueTrack[], mine: number) => {
   const ids = [
     ...new Set(
       tracks
-        .filter((track) => !track.name && track.uri.startsWith("spotify:track:"))
+        .filter(
+          (track) => !track.name && track.uri.startsWith("spotify:track:"),
+        )
         .map((track) => track.uri.split(":")[2]),
     ),
   ];
@@ -373,8 +441,8 @@ export const removeFromQueue = (index: number) =>
 
 /** Plays a queued track right away, skipping everything ahead of it. */
 export const playFromQueue = async (track: QueueTrack) => {
-  const accessToken = await token();
-  if (!accessToken || !deviceId) return;
+  const [accessToken, id] = await Promise.all([token(), device()]);
+  if (!accessToken) return;
 
   // skipping to a track drops everything queued ahead of it
   const queue = $queue.get() ?? [];
@@ -383,7 +451,7 @@ export const playFromQueue = async (track: QueueTrack) => {
 
   await skipTo({
     accessToken,
-    deviceId,
+    deviceId: id,
     uri: track.uri,
     uid: track.uid,
   });
@@ -403,7 +471,10 @@ onMount($queue, () => {
     // the track that just started is usually the head of the queue: drop it
     // right away instead of waiting for the round trip
     const queue = $queue.get();
-    if (queue?.length && queue[0].uri === state?.track_window.current_track.uri) {
+    if (
+      queue?.length &&
+      queue[0].uri === state?.track_window.current_track.uri
+    ) {
       optimistic(queue.slice(1));
       return;
     }
@@ -420,29 +491,89 @@ const updateTrackColor = async (state: Spotify.PlaybackState) => {
   $trackColor.set(await getAccentColorFromImage(url));
 };
 
+/**
+ * The SDK plays inside a cross-origin iframe, so the system's Now Playing
+ * entry belongs to that document — which is why it read "Spotify Embedded"
+ * and offered seek keys. media_session.js runs inside it and relays the
+ * ⏮/⏭ keys back here; play/pause the webview already handles itself.
+ */
+let mediaKeysClaimed = false;
+
+const claimMediaKeys = () => {
+  if (mediaKeysClaimed) return;
+  mediaKeysClaimed = true;
+
+  window.addEventListener("message", (event) => {
+    if (event.data?.yfitops !== "media-key") return;
+
+    if (event.data.key === "next") nextTrack();
+    else if (event.data.key === "previous") prevTrack();
+  });
+};
+
+/** Fills the system entry with the track that is actually playing. */
+const publishNowPlaying = () => {
+  const state = $playerState.get();
+  if (!state) return;
+
+  const track = state.track_window.current_track;
+
+  const message = {
+    yfitops: "now-playing",
+    title: track.name,
+    artist: track.artists.map((artist) => artist.name).join(", "),
+    album: track.album.name,
+    cover: track.album.images[0]?.url ?? "",
+  };
+
+  for (const frame of document.querySelectorAll("iframe")) {
+    frame.contentWindow?.postMessage(message, "*");
+  }
+};
+
 const addListeners = (player: Spotify.Player) => {
   player.addListener("ready", (event) => {
     deviceId = event.device_id;
+    announceDevice(deviceId);
+    claimMediaKeys();
   });
+
+  // the device goes away on sleep or when another client takes over; without
+  // this the next click would reach for an id the server no longer knows
+  player.addListener("not_ready", () => {
+    deviceId = "";
+    registered = new Promise((resolve) => (announceDevice = resolve));
+  });
+
+  // the SDK's own dealer socket drops on sleep and network changes, and it
+  // reconnects on its own — but when that reconnect fails for good, these are
+  // the only trace of why. account_error is the common one: no Premium.
+  for (const event of [
+    "initialization_error",
+    "authentication_error",
+    "account_error",
+    "playback_error",
+  ] as const) {
+    player.addListener(event, ({ message }) => {
+      console.error(`player ${event}:`, message);
+    });
+  }
 
   // ponytail: position is ticked locally between SDK events, each event resyncs it
   player.addListener("player_state_changed", (event) => {
     $playerState.set(withPending(event));
+    $position.set(event.position);
     updateTrackColor(event);
+    publishNowPlaying();
 
     if (tickTimer) clearInterval(tickTimer);
     if (event.paused) return;
 
     let lastTick = Date.now();
     tickTimer = setInterval(() => {
-      const state = $playerState.get();
-      if (!state) return;
-
-      $playerState.set({
-        ...state,
-        position: state.position + (Date.now() - lastTick),
-      });
-      lastTick = Date.now();
+      const now = Date.now();
+      $position.set($position.get() + (now - lastTick));
+      lastTick = now;
     }, 500);
   });
 };
@@ -459,9 +590,11 @@ onMount($playerState, () =>
         volume: 1,
       });
 
+      // listeners first: `ready` fires right after connect, and attaching
+      // afterwards can miss it — leaving the device id empty for good
+      addListeners(instance);
       await instance.connect();
       player = instance;
-      addListeners(instance);
     };
 
     await loadWebSdk();
