@@ -20,8 +20,40 @@ const open = () =>
 const failed = (err: unknown) => console.error("cache:", err);
 
 export const forget = async (key: string) => {
+  const database = await open();
+
   // a cache that cannot forget is still better than a broken page
-  await (await open()).execute("DELETE FROM kv WHERE key = $1", [key]).catch(failed);
+  await database.execute("DELETE FROM kv WHERE key = $1", [key]).catch(failed);
+};
+
+/** For values read once rather than mirrored into a store. */
+export const read = async <T>(key: string): Promise<T | null> => {
+  try {
+    const database = await open();
+    const rows = await database.select<{ value: string }[]>(
+      "SELECT value FROM kv WHERE key = $1",
+      [key],
+    );
+
+    return rows[0] ? (JSON.parse(rows[0].value) as T) : null;
+  } catch (err) {
+    failed(err);
+    return null;
+  }
+};
+
+export const write = async (key: string, value: unknown) => {
+  try {
+    const database = await open();
+
+    await database.execute(
+      "INSERT INTO kv (key, value) VALUES ($1, $2)" +
+        " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+      [key, JSON.stringify(value)],
+    );
+  } catch (err) {
+    failed(err);
+  }
 };
 
 /**
@@ -32,7 +64,10 @@ export const forget = async (key: string) => {
 export const persisted = <T>($store: WritableAtom<T>, key: string) => {
   open()
     .then((database) =>
-      database.select<{ value: string }[]>("SELECT value FROM kv WHERE key = $1", [key]),
+      database.select<{ value: string }[]>(
+        "SELECT value FROM kv WHERE key = $1",
+        [key],
+      ),
     )
     .then((rows) => {
       // the fetch can win this race — a cached value must never overwrite fresh
