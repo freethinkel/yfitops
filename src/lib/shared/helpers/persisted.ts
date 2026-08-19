@@ -1,49 +1,56 @@
+import Database from "@tauri-apps/plugin-sql";
 import type { WritableAtom } from "nanostores";
 
-const PREFIX = "yfitops:";
-
 /**
- * localStorage holds ~5MB in total. A single oversized entry (liked songs run
- * to megabytes) used to blow the quota on every write, and the eviction that
- * followed took every other entry with it — playlists included. Anything this
- * big simply is not cached.
+ * localStorage held ~5MB for the whole app, so a liked-songs run of a few
+ * megabytes was never cached at all. SQLite lives outside the webview and has
+ * room for the lot.
  */
-const MAX_BYTES = 1_000_000;
+// ponytail: one key/value table — SQLite is here for the space, not the schema
+let db: Promise<Database> | null = null;
 
-export const forget = (key: string) => localStorage.removeItem(PREFIX + key);
+const open = () =>
+  (db ??= Database.load("sqlite:cache.db").then(async (database) => {
+    await database.execute(
+      "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    );
+    return database;
+  }));
+
+const failed = (err: unknown) => console.error("cache:", err);
+
+export const forget = async (key: string) => {
+  // a cache that cannot forget is still better than a broken page
+  await (await open()).execute("DELETE FROM kv WHERE key = $1", [key]).catch(failed);
+};
 
 /**
  * Stale-while-revalidate: the store starts with whatever the last session
- * left in localStorage, so the app paints instantly, and the usual fetch
- * still runs and overwrites it.
+ * left on disk, so the app paints instantly, and the usual fetch still runs
+ * and overwrites it.
  */
 export const persisted = <T>($store: WritableAtom<T>, key: string) => {
-  const storageKey = PREFIX + key;
-  const cached = localStorage.getItem(storageKey);
-
-  if (cached && !$store.get()) {
-    try {
-      $store.set(JSON.parse(cached) as T);
-    } catch {
-      localStorage.removeItem(storageKey);
-    }
-  }
+  open()
+    .then((database) =>
+      database.select<{ value: string }[]>("SELECT value FROM kv WHERE key = $1", [key]),
+    )
+    .then((rows) => {
+      // the fetch can win this race — a cached value must never overwrite fresh
+      if (rows[0] && !$store.get()) $store.set(JSON.parse(rows[0].value) as T);
+    })
+    .catch(failed);
 
   return $store.listen((value) => {
     if (value == null) return;
 
-    const json = JSON.stringify(value);
-
-    if (json.length > MAX_BYTES) {
-      localStorage.removeItem(storageKey);
-      return;
-    }
-
-    try {
-      localStorage.setItem(storageKey, json);
-    } catch {
-      // over quota — drop this one entry, never the neighbours
-      localStorage.removeItem(storageKey);
-    }
+    open()
+      .then((database) =>
+        database.execute(
+          "INSERT INTO kv (key, value) VALUES ($1, $2)" +
+            " ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+          [key, JSON.stringify(value)],
+        ),
+      )
+      .catch(failed);
   });
 };

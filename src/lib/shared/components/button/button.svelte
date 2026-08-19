@@ -16,7 +16,7 @@
 <style>
   .button {
     appearance: none;
-    height: 28px;
+    height: 1.86rem;
     padding: 0 0.75rem;
     border-radius: 10em;
     font-size: 0.84rem;
@@ -39,6 +39,7 @@
     }
 
     &.kind__filled {
+      height: 1.84rem;
       background: var(--color-accent);
       border: 1px solid oklch(from var(--color-text) l c h / 0.04);
       color: var(--color-background);

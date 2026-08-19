@@ -4,17 +4,17 @@
   import { playerModel } from "../../model";
 
   const playerState = playerModel.$playerState;
+  const position = playerModel.$position;
   let isDragging = $state(false);
 
   const duration = $derived($playerState?.duration ?? 0);
-  const position = $derived($playerState?.position ?? 0);
 </script>
 
 <div class="slider__wrapper progress__root" class:dragging={isDragging}>
-  <time class="time">{formatDuration(position)}</time>
+  <time class="time">{formatDuration($position)}</time>
   <div class="slider">
     <Slider
-      value={duration ? position / duration : 0}
+      value={duration ? $position / duration : 0}
       onchange={(value) => playerModel.seek(value * duration)}
       ondragging={(dragging) => (isDragging = dragging)}
     />

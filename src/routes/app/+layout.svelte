@@ -7,6 +7,7 @@
   import { Friends } from "$lib/modules/friends/components/friends";
   import { Queue } from "$lib/modules/player/components/queue";
   import { Player } from "$lib/modules/player/components/player";
+  import { playerModel } from "$lib/modules/player/model";
   import { Resizable } from "$lib/shared/components/resizable";
   import type { LayoutProps } from "./$types";
 
@@ -23,7 +24,27 @@
   $effect(() => {
     if (!$isAuthorized && !$isPending) goto("/", { replaceState: true });
   });
+
+  const SEEK_STEP_MS = 5000;
+
+  const shortcuts: Record<string, () => void> = {
+    Space: playerModel.togglePlaypause,
+    ArrowLeft: () => playerModel.seekBy(-SEEK_STEP_MS),
+    ArrowRight: () => playerModel.seekBy(SEEK_STEP_MS),
+  };
+
+  const onKeydown = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement;
+    const action = shortcuts[event.code];
+    if (!action || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (target.isContentEditable || /input|textarea/i.test(target.tagName)) return;
+
+    event.preventDefault();
+    action();
+  };
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <div class="wrapper">
   <Resizable

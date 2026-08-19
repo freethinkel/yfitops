@@ -9,9 +9,7 @@
   const isPending = lyricsModel.$isPending;
   const error = lyricsModel.$error;
   const isEnabled = lyricsModel.$isEnabled;
-  const playerState = playerModel.$playerState;
-
-  const position = $derived($playerState?.position ?? 0);
+  const position = playerModel.$position;
 
   /** The last line already started is the current one. */
   const activeIndex = $derived.by(() => {
@@ -19,7 +17,7 @@
 
     let index = -1;
     for (const [i, line] of $lyrics.lines.entries()) {
-      if (line.startMs > position) break;
+      if (line.startMs > $position) break;
       index = i;
     }
     return index;
