@@ -107,7 +107,7 @@ export const addToPlaylist = async (playlistId: string, uri: string) => {
 
   // the playlist is cached in memory and on disk — both must forget it
   cache.delete(`playlist:${playlistId}`);
-  forget(`playlist:${playlistId}`);
+  await forget(`playlist:${playlistId}`);
 };
 
 export const playlist = (id: string) =>
@@ -143,6 +143,9 @@ export const artist = (id: string) =>
 
 /** Optimistic: the star flips first, the API call follows. */
 export const toggleLike = async (track: SpotifyApi.TrackObjectFull) => {
+  // local files and episodes carry no track id, and `ids=` is a 400
+  if (!track.id) return;
+
   const liked = $likedSongs.get() ?? [];
   const isLiked = liked.some((item) => item.track.id === track.id);
 
@@ -152,9 +155,15 @@ export const toggleLike = async (track: SpotifyApi.TrackObjectFull) => {
       : [{ added_at: new Date().toISOString(), track }, ...liked],
   );
 
-  await (isLiked
-    ? spotifyApi.removeFromMySavedTracks([track.id])
-    : spotifyApi.addToMySavedTracks([track.id]));
+  try {
+    await (isLiked
+      ? spotifyApi.removeFromMySavedTracks([track.id])
+      : spotifyApi.addToMySavedTracks([track.id]));
+  } catch (err) {
+    // the star was flipped ahead of the server: put it back rather than lie
+    $likedSongs.set(liked);
+    console.error(`like ${track.id}:`, err);
+  }
 };
 
 export const addToLiked = (track: SpotifyApi.TrackObjectFull) => {
@@ -172,7 +181,7 @@ export const removeFromPlaylist = async (
 
   // the page reads from the cache, so it has to forget the stale copy
   cache.delete(`playlist:${playlistId}`);
-  forget(`playlist:${playlistId}`);
+  await forget(`playlist:${playlistId}`);
 };
 
 /** Saved albums and followed artists, each a store that checks itself. */
@@ -262,5 +271,5 @@ export const unfollowPlaylist = async (id: string) => {
 
   $playlists.set(($playlists.get() ?? []).filter((item) => item.id !== id));
   cache.delete(`playlist:${id}`);
-  forget(`playlist:${id}`);
+  await forget(`playlist:${id}`);
 };

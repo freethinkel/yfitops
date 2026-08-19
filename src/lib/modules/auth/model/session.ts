@@ -28,9 +28,17 @@ export const createSession = ({
 }: Options) => {
   const $tokens = persistentAtom<AuthTokens | null>(storageKey, null, {
     encode: JSON.stringify,
+    // a throw here happens while the module is still initialising, which takes
+    // the whole app down and leaves no way back except clearing storage by
+    // hand — a corrupt entry costs a re-login instead
     decode: (raw) => {
-      const tokens = JSON.parse(raw) as AuthTokens | null;
-      return tokens && { ...tokens, expiration: new Date(tokens.expiration) };
+      try {
+        const tokens = JSON.parse(raw) as AuthTokens | null;
+        return tokens && { ...tokens, expiration: new Date(tokens.expiration) };
+      } catch {
+        console.error(`session ${storageKey}: unreadable, signing out`);
+        return null;
+      }
     },
   });
 
@@ -131,7 +139,11 @@ export const createSession = ({
         return fresh.accessToken;
       })
       .catch((err) => {
-        $error.set(err instanceof Error ? err.message : String(err));
+        const message = err instanceof Error ? err.message : String(err);
+        $error.set(message);
+        // callers pass this straight into an Authorization header, so a failure
+        // here surfaces far away as a 401 on whatever asked next
+        console.error(`session ${storageKey}: refresh failed —`, message);
         return "";
       })
       .finally(() => {

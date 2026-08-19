@@ -31,6 +31,45 @@ const deviceId = () => {
   return id;
 };
 
+/**
+ * A stalled connection used to leave the promise pending for good — the home
+ * feed sat on its skeletons with nothing in the console. Two guards, because
+ * neither covers the other: `connectTimeout` is the only one the Rust side can
+ * actually act on, and the race is what guarantees the promise settles.
+ *
+ * Deliberately no AbortSignal: the plugin cancels by the request's resource id,
+ * which `fetch_send` has already consumed by then, so aborting can only fail —
+ * loudly, as an unhandled rejection, and without stopping anything. Losing the
+ * race leaves the request running on the Rust side; the point is to stop
+ * waiting on it, not to stop it.
+ */
+const TIMEOUT = 15_000;
+const BUNDLE_TIMEOUT = 60_000;
+// the gateway only starts executing once the token checks out, so the query
+// legitimately takes longer than the rest
+const QUERY_TIMEOUT = 20_000;
+
+const request = async (
+  leg: string,
+  url: string,
+  init: RequestInit = {},
+  ms = TIMEOUT,
+) => {
+  const expired = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`no answer in ${ms / 1000}s`)), ms),
+  );
+
+  try {
+    return await Promise.race([
+      fetch(url, { ...init, connectTimeout: ms }),
+      expired,
+    ]);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`${leg} (${url.split("/")[2]}): ${reason}`);
+  }
+};
+
 let clientToken: { token: string; expiresAt: number } | null = null;
 
 /** Granted without any user credentials, and good for a fortnight. */
@@ -39,7 +78,7 @@ const getClientToken = async () => {
     return clientToken.token;
   }
 
-  const response = await fetch(CLIENT_TOKEN_URL, {
+  const response = await request("client-token", CLIENT_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
@@ -62,7 +101,9 @@ const getClientToken = async () => {
   const granted = data?.granted_token;
 
   if (!granted?.token) {
-    throw new Error(`No client token: ${data?.response_type ?? response.status}`);
+    throw new Error(
+      `No client token: ${data?.response_type ?? response.status}`,
+    );
   }
 
   clientToken = {
@@ -94,7 +135,7 @@ const writeHash = (operationName: string, hash: string) => {
  * when the gateway rejects a hash as unknown — after a new player release.
  */
 const fetchHash = async (operationName: string) => {
-  const page = await fetch(WEB_PLAYER_URL, {
+  const page = await request("web player page", WEB_PLAYER_URL, {
     headers: { "user-agent": USER_AGENT },
   });
   const html = await page.text();
@@ -105,9 +146,13 @@ const fetchHash = async (operationName: string) => {
 
   if (!bundleUrl) throw new Error("Web player bundle not found");
 
-  const bundle = await fetch(bundleUrl, {
-    headers: { "user-agent": USER_AGENT },
-  });
+  // a few megabytes over IPC, so it gets a longer leash than the rest
+  const bundle = await request(
+    "web player bundle",
+    bundleUrl,
+    { headers: { "user-agent": USER_AGENT } },
+    BUNDLE_TIMEOUT,
+  );
   const source = await bundle.text();
 
   const hash = source.match(
@@ -135,26 +180,31 @@ export const pathfinderQuery = async <T>({
   accessToken,
 }: Query): Promise<T> => {
   const send = async (sha256Hash: string) => {
-    const response = await fetch(PATHFINDER_URL, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        "client-token": await getClientToken(),
-        "content-type": "application/json;charset=UTF-8",
-        "app-platform": "WebPlayer",
-        "spotify-app-version": WEB_PLAYER_VERSION,
-        "accept-language": "en",
-        // The gateway answers 403 without a browser's origin and agent.
-        origin: "https://open.spotify.com",
-        referer: "https://open.spotify.com/",
-        "user-agent": USER_AGENT,
+    const response = await request(
+      `${operationName} query`,
+      PATHFINDER_URL,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "client-token": await getClientToken(),
+          "content-type": "application/json;charset=UTF-8",
+          "app-platform": "WebPlayer",
+          "spotify-app-version": WEB_PLAYER_VERSION,
+          "accept-language": "en",
+          // The gateway answers 403 without a browser's origin and agent.
+          origin: "https://open.spotify.com",
+          referer: "https://open.spotify.com/",
+          "user-agent": USER_AGENT,
+        },
+        body: JSON.stringify({
+          operationName,
+          variables,
+          extensions: { persistedQuery: { version: 1, sha256Hash } },
+        }),
       },
-      body: JSON.stringify({
-        operationName,
-        variables,
-        extensions: { persistedQuery: { version: 1, sha256Hash } },
-      }),
-    });
+      QUERY_TIMEOUT,
+    );
 
     const data = await response.json();
     const error = data?.errors?.[0];
@@ -174,6 +224,7 @@ export const pathfinderQuery = async <T>({
   try {
     return await send(readHashes()[operationName] ?? fallbackHash);
   } catch (err) {
+
     if (!(err as { stale?: boolean }).stale) throw err;
 
     // A new web player build shipped — pick the fresh hash up and retry once.
