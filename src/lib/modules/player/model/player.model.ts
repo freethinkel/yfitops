@@ -1,4 +1,4 @@
-import { atom, onMount } from "nanostores";
+import { atom, computed, onMount } from "nanostores";
 import { authModel, internalSession } from "$lib/modules/auth/model";
 import {
   getCluster,
@@ -6,6 +6,10 @@ import {
   skipTo,
   type QueueEntry,
 } from "$lib/shared/api/connect-state";
+import {
+  $likedSongs,
+  toggleLike,
+} from "$lib/modules/playlist/model/playlist.model";
 import { spotifyApi } from "$lib/shared/api/spotify";
 import { getAccentColorFromImage } from "$lib/shared/helpers/color";
 import { loadWebSdk } from "./web-sdk";
@@ -159,6 +163,37 @@ export const cycleRepeat = () => {
 
 export const prevTrack = () => player?.previousTrack();
 
+export const $currentLiked = computed(
+  [$playerState, $likedSongs],
+  (state, liked) => {
+    const id = state?.track_window.current_track.id;
+
+    return !!id && (liked ?? []).some((item) => item.track.id === id);
+  },
+);
+
+/**
+ * The saved list holds Web API tracks and the SDK reports its own shape. The
+ * fields the list renders line up but for the ids, which the SDK leaves out of
+ * albums and artists and spells into the uri instead — without them the rows
+ * link nowhere and key themselves on NaN.
+ */
+const idOf = (uri: string) => uri.split(":")[2] ?? "";
+
+export const toggleCurrentLike = () => {
+  const track = $playerState.get()?.track_window.current_track;
+  if (!track) return;
+
+  toggleLike({
+    ...track,
+    album: { ...track.album, id: idOf(track.album.uri) },
+    artists: track.artists.map((artist) => ({
+      ...artist,
+      id: idOf(artist.uri),
+    })),
+  } as unknown as SpotifyApi.TrackObjectFull);
+};
+
 export const seek = (position: number) => {
   player?.seek(position);
   $position.set(position);
@@ -173,46 +208,65 @@ const startPlayback = (uris: string[], id: string) =>
   spotifyApi.play({ uris, device_id: id });
 
 /**
+ * Every one of these is called straight from a click handler, so a rejection
+ * has nowhere to go and used to vanish — a dead device looked exactly like a
+ * click that did nothing at all.
+ */
+const withDevice = async (
+  what: string,
+  run: (id: string) => Promise<unknown>,
+) => {
+  try {
+    await run(await device());
+  } catch (err) {
+    console.error(`player ${what}:`, err);
+  }
+};
+
+/**
  * With shuffle on the API picks a random entry from `uris` instead of the
  * first one, so clicking a row started some other track. Shuffle is turned off
  * for the call and put back right after — re-enabling keeps the track that is
  * already playing and only reshuffles what comes next, which is what the
  * native clients do.
  */
-export const play = async (uris: string[]) => {
-  const id = await device();
-  const shuffled = $playerState.get()?.shuffle ?? false;
+export const play = (uris: string[]) =>
+  withDevice("play", async (id) => {
+    const shuffled = $playerState.get()?.shuffle ?? false;
 
-  if (shuffled) await setShuffle(false, id);
-  await startPlayback(uris, id);
-  if (shuffled) await setShuffle(true, id);
-};
+    if (shuffled) await setShuffle(false, id);
+    // the server acks the shuffle change before the device has applied it, so
+    // the call right behind it can still be shuffled — naming the offset pins
+    // the first track whichever way that race lands
+    await spotifyApi.play({ uris, offset: { position: 0 }, device_id: id });
+    if (shuffled) await setShuffle(true, id);
+  });
 
 /** Plays a whole playlist, album or artist by its uri. */
 /** Same for a bare list of tracks — liked songs have no context uri. */
-export const playShuffled = async (uris: string[]) => {
-  const id = await device();
+export const playShuffled = (uris: string[]) =>
+  withDevice("playShuffled", async (id) => {
+    patchState({ shuffle: true });
+    pending.set("shuffle", true);
 
-  patchState({ shuffle: true });
-  pending.set("shuffle", true);
-
-  await setShuffle(true, id);
-  await startPlayback(uris, id);
-};
+    await setShuffle(true, id);
+    await startPlayback(uris, id);
+  });
 
 /** Starts a playlist or album shuffled, the way the native clients do. */
-export const shuffleContext = async (uri: string) => {
-  const id = await device();
+export const shuffleContext = (uri: string) =>
+  withDevice("shuffleContext", async (id) => {
+    patchState({ shuffle: true });
+    pending.set("shuffle", true);
 
-  patchState({ shuffle: true });
-  pending.set("shuffle", true);
+    await setShuffle(true, id);
+    await playContext(uri);
+  });
 
-  await setShuffle(true, id);
-  await playContext(uri);
-};
-
-export const playContext = async (uri: string) =>
-  spotifyApi.play({ context_uri: uri, device_id: await device() });
+export const playContext = (uri: string) =>
+  withDevice("playContext", (id) =>
+    spotifyApi.play({ context_uri: uri, device_id: id }),
+  );
 
 export type QueueTrack = {
   uri: string;
@@ -441,6 +495,14 @@ export const removeFromQueue = (index: number) =>
 
 /** Plays a queued track right away, skipping everything ahead of it. */
 export const playFromQueue = async (track: QueueTrack) => {
+  try {
+    await skipToQueued(track);
+  } catch (err) {
+    console.error("player playFromQueue:", err);
+  }
+};
+
+const skipToQueued = async (track: QueueTrack) => {
   const [accessToken, id] = await Promise.all([token(), device()]);
   if (!accessToken) return;
 
@@ -531,11 +593,37 @@ const publishNowPlaying = () => {
   }
 };
 
+/**
+ * Spotify keeps the last playback server-side, so nothing has to be stored
+ * locally: handing the session to this device without starting it brings the
+ * track, its position and the queue back exactly where they stopped. Playback
+ * running somewhere else is left alone — taking it over would yank the music
+ * off the phone.
+ */
+let restored = false;
+
+const restoreLastSession = async (id: string) => {
+  // only the first `ready` of the session — a reconnect after sleep must not
+  // pull a paused session back off whatever device has it now
+  if (restored) return;
+  restored = true;
+
+  try {
+    const state = await spotifyApi.getMyCurrentPlaybackState();
+    if (state?.is_playing) return;
+
+    await spotifyApi.transferMyPlayback([id], { play: false });
+  } catch (err) {
+    console.error("player restore:", err);
+  }
+};
+
 const addListeners = (player: Spotify.Player) => {
   player.addListener("ready", (event) => {
     deviceId = event.device_id;
     announceDevice(deviceId);
     claimMediaKeys();
+    restoreLastSession(event.device_id);
   });
 
   // the device goes away on sleep or when another client takes over; without
@@ -543,6 +631,11 @@ const addListeners = (player: Spotify.Player) => {
   player.addListener("not_ready", () => {
     deviceId = "";
     registered = new Promise((resolve) => (announceDevice = resolve));
+
+    // nothing else asks the SDK to come back, and `ready` is the only thing
+    // that ever sets the id again — without this a dropped device stays gone
+    // and every later click waits on a promise no one will resolve
+    player.connect().catch((err) => console.error("player reconnect:", err));
   });
 
   // the SDK's own dealer socket drops on sleep and network changes, and it
