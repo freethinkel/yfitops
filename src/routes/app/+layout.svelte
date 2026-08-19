@@ -9,6 +9,7 @@
   import { Player } from "$lib/modules/player/components/player";
   import { playerModel } from "$lib/modules/player/model";
   import { Resizable } from "$lib/shared/components/resizable";
+  import { Toast } from "$lib/shared/components/toast";
   import type { LayoutProps } from "./$types";
 
   const { children }: LayoutProps = $props();
@@ -60,6 +61,8 @@
     <div class="outlet">
       {@render children()}
     </div>
+
+    <Toast />
 
     <div class="player">
       <Player />

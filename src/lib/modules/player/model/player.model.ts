@@ -12,6 +12,7 @@ import {
 } from "$lib/modules/playlist/model/playlist.model";
 import { spotifyApi } from "$lib/shared/api/spotify";
 import { getAccentColorFromImage } from "$lib/shared/helpers/color";
+import { reportError } from "$lib/shared/helpers/errors";
 import { loadWebSdk } from "./web-sdk";
 
 export const $playerState = atom<Spotify.PlaybackState | null>(null);
@@ -23,7 +24,6 @@ export const $position = atom(0);
 export const $trackColor = atom("transparent");
 
 let player: Spotify.Player | null = null;
-let deviceId = "";
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let colorSource = "";
 
@@ -136,7 +136,7 @@ const sendToggle = <T>(
 
   toggleChain = toggleChain.then(send).catch((err) => {
     pending.delete(key);
-    console.error(`player ${key}:`, err);
+    reportError(`player ${key}`, err);
   });
 
   return toggleChain;
@@ -148,7 +148,9 @@ export const toggleShuffle = () => {
 
   const shuffle = !state.shuffle;
 
-  return sendToggle("shuffle", shuffle, () => setShuffle(shuffle, deviceId));
+  return sendToggle("shuffle", shuffle, async () =>
+    setShuffle(shuffle, await device()),
+  );
 };
 
 /** off → context → track → off, the order the native clients cycle through. */
@@ -156,8 +158,8 @@ export const cycleRepeat = () => {
   const mode = $playerState.get()?.repeat_mode ?? 0;
   const next = (["context", "track", "off"] as const)[mode];
 
-  return sendToggle("repeat_mode", (mode + 1) % 3, () =>
-    setRepeat(next, deviceId),
+  return sendToggle("repeat_mode", (mode + 1) % 3, async () =>
+    setRepeat(next, await device()),
   );
 };
 
@@ -219,7 +221,7 @@ const withDevice = async (
   try {
     await run(await device());
   } catch (err) {
-    console.error(`player ${what}:`, err);
+    reportError(`player ${what}`, err);
   }
 };
 
@@ -401,7 +403,7 @@ const loadQueue = async () => {
     await hydrate(tracks, mine);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("queue:", message);
+    reportError("queue", err);
     $queueError.set(message);
   }
 };
@@ -443,8 +445,8 @@ const applyQueue = (next: QueueTrack[]) => {
   if (syncTimer) clearTimeout(syncTimer);
 
   chain = chain.then(async () => {
-    const accessToken = await token();
-    if (!accessToken || !deviceId) return;
+    const [accessToken, id] = await Promise.all([token(), device()]);
+    if (!accessToken) return;
 
     try {
       const cluster = await getCluster(accessToken);
@@ -453,7 +455,7 @@ const applyQueue = (next: QueueTrack[]) => {
 
       await setQueue({
         accessToken,
-        deviceId,
+        deviceId: id,
         nextTracks: next.map(toEntry),
         prevTracks: state.prev_tracks ?? [],
         revision: state.queue_revision,
@@ -463,7 +465,7 @@ const applyQueue = (next: QueueTrack[]) => {
       if (mine === epoch) scheduleSync();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error("queue edit:", message);
+      reportError("queue edit", err);
       $queueError.set(message);
       if (mine === epoch) $queue.set(previous);
     }
@@ -498,7 +500,7 @@ export const playFromQueue = async (track: QueueTrack) => {
   try {
     await skipToQueued(track);
   } catch (err) {
-    console.error("player playFromQueue:", err);
+    reportError("player playFromQueue", err);
   }
 };
 
@@ -614,14 +616,13 @@ const restoreLastSession = async (id: string) => {
 
     await spotifyApi.transferMyPlayback([id], { play: false });
   } catch (err) {
-    console.error("player restore:", err);
+    reportError("player restore", err);
   }
 };
 
 const addListeners = (player: Spotify.Player) => {
   player.addListener("ready", (event) => {
-    deviceId = event.device_id;
-    announceDevice(deviceId);
+    announceDevice(event.device_id);
     claimMediaKeys();
     restoreLastSession(event.device_id);
   });
@@ -629,13 +630,12 @@ const addListeners = (player: Spotify.Player) => {
   // the device goes away on sleep or when another client takes over; without
   // this the next click would reach for an id the server no longer knows
   player.addListener("not_ready", () => {
-    deviceId = "";
     registered = new Promise((resolve) => (announceDevice = resolve));
 
     // nothing else asks the SDK to come back, and `ready` is the only thing
     // that ever sets the id again — without this a dropped device stays gone
     // and every later click waits on a promise no one will resolve
-    player.connect().catch((err) => console.error("player reconnect:", err));
+    player.connect().catch((err) => reportError("player reconnect", err));
   });
 
   // the SDK's own dealer socket drops on sleep and network changes, and it
@@ -648,7 +648,12 @@ const addListeners = (player: Spotify.Player) => {
     "playback_error",
   ] as const) {
     player.addListener(event, ({ message }) => {
-      console.error(`player ${event}:`, message);
+      // the first three end playback for good — no Premium, a dead token, a
+      // player that never came up — and the user has to be told. A playback
+      // error is usually one track the CDN refused, and the SDK moves on
+      if (event === "playback_error")
+        console.error(`player ${event}:`, message);
+      else reportError(`player ${event}`, new Error(message));
     });
   }
 

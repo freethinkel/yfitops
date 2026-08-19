@@ -10,9 +10,12 @@ import { userModel } from "$lib/modules/user/model";
 import { spotifyApi } from "$lib/shared/api/spotify";
 import { fetchInternalPlaylist } from "./internal-playlist";
 import { forget, persisted } from "$lib/shared/helpers/persisted";
+import { reportError } from "$lib/shared/helpers/errors";
 
 export const $likedSongs = atom<SpotifyApi.SavedTrackObject[] | null>(null);
-export const $playlists = atom<SpotifyApi.PlaylistObjectSimplified[] | null>(null);
+export const $playlists = atom<SpotifyApi.PlaylistObjectSimplified[] | null>(
+  null,
+);
 
 // ponytail: a flag, not the store's own value — a persisted value must not
 // pass for "already fetched", otherwise the cache never refreshes
@@ -135,7 +138,10 @@ export const artist = (id: string) =>
     const [artist, top, albums] = await Promise.all([
       spotifyApi.getArtist(id),
       spotifyApi.getArtistTopTracks(id, "from_token"),
-      spotifyApi.getArtistAlbums(id, { limit: 50, include_groups: "album,single" }),
+      spotifyApi.getArtistAlbums(id, {
+        limit: 50,
+        include_groups: "album,single",
+      }),
     ]);
 
     return { artist, topTracks: [...top.tracks], albums: [...albums.items] };
@@ -181,7 +187,7 @@ export const toggleLike = async (track: SpotifyApi.TrackObjectFull) => {
   } catch (err) {
     // the star was flipped ahead of the server: put it back rather than lie
     $likedSongs.set(liked);
-    console.error(`like ${track.id}:`, err);
+    reportError("like", err);
   }
 };
 
@@ -192,10 +198,7 @@ export const addToLiked = (track: SpotifyApi.TrackObjectFull) => {
   return toggleLike(track);
 };
 
-export const removeFromPlaylist = async (
-  playlistId: string,
-  uri: string,
-) => {
+export const removeFromPlaylist = async (playlistId: string, uri: string) => {
   await spotifyApi.removeTracksFromPlaylist(playlistId, [uri]);
 
   // the page reads from the cache, so it has to forget the stale copy
@@ -228,7 +231,7 @@ export const toggleSavedAlbum = async (
     await saveToLibrary("albums", saved ? "DELETE" : "PUT", [id]);
   } catch (err) {
     $saved.set(saved);
-    throw err;
+    reportError("save album", err);
   }
 };
 
@@ -260,7 +263,7 @@ export const toggleFollowedArtist = async (
     }
   } catch (err) {
     $followed.set(followed);
-    throw err;
+    reportError("follow artist", err);
   }
 };
 
@@ -277,7 +280,10 @@ export const followPlaylist = async (id: string) => {
   const playlists = $playlists.get() ?? [];
 
   if (!playlists.some((item) => item.id === id)) {
-    $playlists.set([added as SpotifyApi.PlaylistObjectSimplified, ...playlists]);
+    $playlists.set([
+      added as SpotifyApi.PlaylistObjectSimplified,
+      ...playlists,
+    ]);
   }
 };
 
