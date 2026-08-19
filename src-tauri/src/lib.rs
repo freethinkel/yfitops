@@ -74,10 +74,34 @@ fn enable_glass(webview: &tauri::webview::PlatformWebview) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Called from the mini player once its window exists: it keeps the titlebar
+/// for the rounded corners and drops only the buttons.
+#[tauri::command]
+fn hide_window_buttons(_app: AppHandle, _label: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let window = _app
+            .get_webview_window(&_label)
+            .ok_or_else(|| format!("no window labelled {_label}"))?;
+
+        window.hide_buttons();
+    }
+
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|_app| {
+            // built here, not from the config, so the SDK's iframe gets the
+            // media-session script — see media_session.js
+            let config = _app.config().app.windows[0].clone();
+            WebviewWindowBuilder::from_config(_app, &config)?
+                .initialization_script_for_all_frames(include_str!("media_session.js"))
+                .build()?;
+
             #[cfg(target_os = "macos")]
             for (_, window) in _app.webview_windows().iter() {
                 window.unified_titlebar();
@@ -87,7 +111,10 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![create_auth_window])
+        .invoke_handler(tauri::generate_handler![
+            create_auth_window,
+            hide_window_buttons
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

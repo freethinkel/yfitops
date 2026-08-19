@@ -107,3 +107,21 @@ impl ChangeVisible for id {
         msg_send![self, setVisible: state]
     }
 }
+
+/// The companion keeps its titlebar — that is what earns it rounded corners and
+/// the system shadow — but a floating player has nothing to close, minimise or
+/// zoom, so the traffic lights themselves go.
+pub fn hide_standard_buttons(window: *mut c_void) {
+    let window = window as id;
+
+    unsafe {
+        // NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton
+        for index in 0..3 {
+            let button: id = msg_send![window, standardWindowButton: index];
+
+            if button != nil {
+                let _: () = msg_send![button, setHidden: YES];
+            }
+        }
+    }
+}

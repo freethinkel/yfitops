@@ -1,16 +1,22 @@
 <script lang="ts">
-  import { appModel } from "$lib/modules/app/model";
   import { Cover } from "$lib/shared/components/cover";
+  import { Icon } from "$lib/shared/components/icon";
   import { Marquee } from "$lib/shared/components/marquee";
-  import { playerModel } from "../../model";
+  import { miniModel, playerModel } from "../../model";
 
   const playerState = playerModel.$playerState;
   const track = $derived($playerState?.track_window.current_track);
 </script>
 
 <div class="wrapper track_info__root">
-  <button class="cover" type="button" onclick={() => appModel.openDetails()}>
+  <button
+    class="cover"
+    type="button"
+    aria-label="Open the mini player"
+    onclick={() => miniModel.openMini()}
+  >
     <Cover size={44} url={track?.album.images[0]?.url} />
+    <span class="detach"><Icon name="mini-player" size={18} /></span>
   </button>
 
   <div class="track_info">
@@ -35,18 +41,32 @@
     width: 100%;
     min-width: 0;
   }
+  /* the whole artwork is the target, the way the mini player opens in Apple
+     Music — the glyph only says so on hover */
   .cover {
+    position: relative;
     appearance: none;
     border: none;
     background: none;
     padding: 0;
     display: flex;
     cursor: pointer;
-    transition: var(--transition);
 
-    &:hover {
-      opacity: 0.8;
+    &:hover .detach {
+      opacity: 1;
     }
+  }
+  .detach {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--border-radius);
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    opacity: 0;
+    transition: var(--transition);
   }
   .track_info {
     display: flex;
