@@ -13,9 +13,14 @@
 
 <div class="wrapper" class:fill style:--size="{size}px">
   {#if url}
-    <img src={url} alt="" />
+    <!-- decoding off the main thread: a flick brings a screenful of these in at
+         once, and a synchronous decode would land inside the scroll frame -->
+    <img src={url} alt="" decoding="async" />
+  {:else}
+    <!-- only without artwork: the track table draws one cover per row, and the
+         placeholder used to be built underneath every single one of them -->
+    <Icon name={icon} size={size / 1.5} />
   {/if}
-  <Icon name={icon} size={size / 1.5} />
 </div>
 
 <style>
@@ -25,10 +30,12 @@
     height: auto;
     aspect-ratio: 1;
   }
+  /* the image and the placeholder are mutually exclusive now, so neither needs
+     to be lifted out of flow — one stacking context less per cover */
   .wrapper {
     display: flex;
-    position: relative;
-    isolation: isolate;
+    align-items: center;
+    justify-content: center;
     width: var(--size);
     min-width: var(--size);
     height: var(--size);
@@ -38,13 +45,6 @@
     background: oklch(from var(--color-text) l c h / 0.04);
 
     & :global(div.icon) {
-      display: flex;
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      align-items: center;
-      justify-content: center;
       color: oklch(from var(--color-text) l c h / 0.4);
     }
   }
@@ -52,7 +52,5 @@
     height: 100%;
     width: 100%;
     object-fit: cover;
-    position: absolute;
-    z-index: 1;
   }
 </style>

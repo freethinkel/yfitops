@@ -141,17 +141,22 @@
   // clicked div, so relying on focus meant having to Tab into the list first
   let selected = $state<number | null>(null);
   let body = $state<HTMLDivElement>();
+  let rows = $state<HTMLDivElement>();
 
   const playingIndex = $derived(sorted.findIndex(({ id }) => currentIds.has(id)));
 
   /**
    * Only the rows in view are in the DOM — a liked library runs to thousands
    * of tracks, and the browser chokes long before that on real nodes. Rows are
-   * a fixed 24px, so the window is plain arithmetic and the scrollbar keeps
-   * its size through padding on the body.
+   * a fixed 24px, so the window is plain arithmetic.
+   *
+   * The scrollbar keeps its size from a sizer of the full height, and the
+   * window rides on a transform inside it. Padding would do the same job, but
+   * every scroll step would relayout the subtree; a transform only recomposites.
    */
   const ROW_HEIGHT = 24;
-  const OVERSCAN = 12;
+  const OVERSCAN = 4;
+  const SKELETON_ROWS = 24;
 
   let scroller = $state<HTMLElement | null>(null);
   let first = $state(0);
@@ -180,16 +185,33 @@
       windowSize = Math.ceil(scroller.clientHeight / ROW_HEIGHT) + OVERSCAN * 2;
     };
 
-    update();
-    scroller.addEventListener("scroll", update, { passive: true });
+    /**
+     * Scroll fires faster than the screen redraws, and `update` reads layout —
+     * measuring on every event forces a reflow each time, right after the last
+     * write invalidated it. One measurement per frame is all the display can
+     * show anyway.
+     */
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
 
-    const observer = new ResizeObserver(update);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        update();
+      });
+    };
+
+    update();
+    scroller.addEventListener("scroll", schedule, { passive: true });
+
+    const observer = new ResizeObserver(schedule);
     observer.observe(scroller);
     observer.observe(node);
 
     return {
       destroy() {
-        scroller?.removeEventListener("scroll", update);
+        cancelAnimationFrame(frame);
+        scroller?.removeEventListener("scroll", schedule);
         observer.disconnect();
       },
     };
@@ -197,7 +219,7 @@
 
   /** The row's element, or nothing when it is outside the rendered window. */
   const rowElement = (index: number) =>
-    body?.children[index - first] as HTMLElement | undefined;
+    rows?.children[index - first] as HTMLElement | undefined;
 
   const select = (index: number) => {
     selected = Math.max(0, Math.min(index, sorted.length - 1));
@@ -357,16 +379,22 @@
     {/each}
   </div>
 
+  <!-- the sizer holds the scrollbar open; the window inside it is what moves -->
   <div
     class="body"
-    role="rowgroup"
+    role="presentation"
     bind:this={body}
     use:virtualize
-    style:padding-top="{first * ROW_HEIGHT}px"
-    style:padding-bottom="{(sorted.length - last) * ROW_HEIGHT}px"
+    style:height="{(loading ? SKELETON_ROWS : sorted.length) * ROW_HEIGHT}px"
   >
+    <div
+      class="window"
+      role="rowgroup"
+      bind:this={rows}
+      style:transform="translate3d(0, {first * ROW_HEIGHT}px, 0)"
+    >
     {#if loading}
-      {#each Array(24) as _, index (index)}
+      {#each Array(SKELETON_ROWS) as _, index (index)}
         <div class="row skeleton_row" class:odd={index % 2 === 1}>
           <span class="cell"></span>
           <span class="cell"></span>
@@ -386,7 +414,14 @@
       {/each}
     {/if}
 
-    {#each windowed as track, offset (track.id + first + offset)}
+    <!--
+      Deliberately unkeyed: the rows are recycled. A key by absolute index is
+      cheaper while creeping — one row in, one row out — but a flick moves the
+      window past itself, and then every key is new and all sixty rows are
+      rebuilt. Without one, Svelte reuses the blocks by position and only
+      updates the props that differ, which bounds the cost of a fast scroll.
+    -->
+    {#each windowed as track, offset}
       {@const index = first + offset}
       <Track
         {track}
@@ -403,11 +438,23 @@
         onlike={() => playlistModel.toggleLike(track)}
         onmenu={(event) => openMenu(event, index)}
       />
-    {/each}
+      {/each}
+    </div>
   </div>
 </div>
 
 <style>
+  .body {
+    position: relative;
+  }
+  .window {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    /* the rows are the only thing that moves while scrolling */
+    will-change: transform;
+  }
   /* --track-columns is set inline from the visible columns, so the header and
      the rows can never drift apart; the duration column is 72px rather than
      the 56px a time needs, because the header carries a sort chevron too */
