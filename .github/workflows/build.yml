@@ -47,20 +47,66 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # only on a tag: a signed build has to be notarised too, and that is a
+      # round trip to Apple measured in minutes — not worth it per push
+      - name: Import the signing certificate
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          # the runner is thrown away, but an expiring keychain mid-build is not
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 \
+            -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          # without this codesign stops to ask for the key, and nobody is there
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm certificate.p12
+
+          # notarytool wants a path, and a secret can only carry the contents
+          echo "$APPLE_API_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/api-key.p8"
+
       # tauri build runs `pnpm build` itself via beforeBuildCommand.
-      # Both are public identifiers baked into the bundle, not secrets — an own
+      # SPT_* are public identifiers baked into the bundle, not secrets — an own
       # client id only lifts the Web API quota librespot's public one shares.
       # Unset means the code falls back to that public one.
-      - run: pnpm tauri build
+      - name: Build
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        run: pnpm tauri build
         env:
           SPT_CLIENT_ID: ${{ vars.SPT_CLIENT_ID }}
           SPT_REDIRECT_URI: ${{ vars.SPT_REDIRECT_URI }}
+
+      # split rather than one step with conditional env: the signing variables
+      # are read by their presence, so an empty one is not the same as absent
+      - name: Build, sign and notarise
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: pnpm tauri build
+        env:
+          SPT_CLIENT_ID: ${{ vars.SPT_CLIENT_ID }}
+          SPT_REDIRECT_URI: ${{ vars.SPT_REDIRECT_URI }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/api-key.p8
 
       - uses: actions/upload-artifact@v4
         with:
           name: yfitops-macos-arm64
           path: src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
+
+      - name: Drop the notarisation key
+        if: always() && startsWith(github.ref, 'refs/tags/v')
+        run: rm -f "$RUNNER_TEMP/api-key.p8"
 
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -71,4 +117,4 @@ jobs:
             src-tauri/target/release/bundle/dmg/*.dmg \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
-            --notes 'Apple Silicon, unsigned. macOS refuses to open it until you clear the quarantine flag: `xattr -cr /Applications/Yfitops.app`'
+            --notes 'Apple Silicon. Signed and notarised, so it opens without a detour through System Settings.'
