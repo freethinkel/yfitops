@@ -6,7 +6,6 @@ use std::{
 use librespot_connect::{ConnectConfig, LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
 use librespot_core::{
     authentication::Credentials, cache::Cache, config::SessionConfig, token::Token, Session,
-    SpotifyUri,
 };
 use librespot_playback::{
     audio_backend,
@@ -282,15 +281,6 @@ pub fn player_seek(app: AppHandle, position_ms: u32) -> Result<(), String> {
     with_player(&app, |player| player.seek(position_ms))
 }
 
-/// Fetches a track ahead of time so switching to it is instant. Spirc does this
-/// on its own near the end of a track, which never helps someone skipping in
-/// the middle — and skipping is where the wait was audible.
-#[tauri::command]
-pub fn player_preload(app: AppHandle, uri: String) -> Result<(), String> {
-    let track = SpotifyUri::from_uri(&uri).map_err(|err| err.to_string())?;
-
-    with_player(&app, |player| player.preload(track))
-}
 
 #[tauri::command]
 pub fn player_set_shuffle(app: AppHandle, shuffle: bool) -> Result<(), String> {

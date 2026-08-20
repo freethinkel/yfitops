@@ -144,7 +144,6 @@ pub fn run() {
             player::player_previous,
             player::player_seek,
             player::player_skip_to,
-            player::player_preload,
             #[cfg(target_os = "macos")]
             media_keys::media_publish,
             player::player_set_shuffle,

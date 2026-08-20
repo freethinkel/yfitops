@@ -601,14 +601,7 @@ const applyEvent = async (event: PlayerEvent) => {
 
   if (event.position_ms !== undefined) $position.set(event.position_ms);
 
-  if (track) {
-    updateTrackColor(track.album.images[0]?.url ?? "");
-
-    // fetch what comes next while this one plays — skipping mid-track would
-    // otherwise wait out the metadata and the first bytes from the CDN
-    const next = $queue.get()?.[0]?.uri;
-    if (next) invoke("player_preload", { uri: next }).catch(() => {});
-  }
+  if (track) updateTrackColor(track.album.images[0]?.url ?? "");
 
   publishNowPlaying(state);
   retick(paused);
