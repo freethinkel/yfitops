@@ -140,27 +140,36 @@ const inWindow = async (url: string, done: (url: string) => boolean) => {
 
   const window = new WebviewWindow(AUTH_WINDOW);
 
-  await new Promise<void>((resolve) => {
-    let unlisten: UnlistenFn | null = null;
+  // closing the window by hand has to end this too, or the promise never
+  // settles and the button it was called from stays spinning for good
+  return new Promise<boolean>((resolve) => {
+    const off: UnlistenFn[] = [];
+
+    const finish = (reached: boolean) => {
+      off.forEach((stop) => stop());
+      off.length = 0;
+      resolve(reached);
+    };
 
     listen(
       "change_navigation_url",
       ({ payload }: { payload: { url: string } }) => {
         if (!done(payload.url)) return;
 
-        unlisten?.();
+        finish(true);
         window.close();
-        resolve();
       },
-    ).then((off) => {
-      unlisten = off;
-    });
+    ).then((stop) => off.push(stop));
+
+    window.onCloseRequested(() => finish(false)).then((stop) => off.push(stop));
   });
 };
 
 export const login = () =>
   withPending(async () => {
-    await inWindow(LOGIN_URL, (url) => url.startsWith(LANDED));
+    // walked away from the form — not something to report as a failure
+    if (!(await inWindow(LOGIN_URL, (url) => url.startsWith(LANDED)))) return;
+
     await ensureToken();
 
     if (!$isAuthorized.get()) throw new Error($error.get() ?? "Вход не удался");
