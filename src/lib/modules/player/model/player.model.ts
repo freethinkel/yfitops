@@ -1,5 +1,5 @@
 import { atom, computed, onMount } from "nanostores";
-import { authModel, webSession } from "$lib/modules/auth/model";
+import { webSession } from "$lib/modules/auth/model";
 import {
   command,
   getCluster,
@@ -701,13 +701,13 @@ const addListeners = (player: Spotify.Player) => {
 
 /** The Web Playback SDK connects as soon as the player state is observed. */
 onMount($playerState, () =>
-  authModel.whenAuthorized(async () => {
+  webSession.whenAuthorized(async () => {
     if (player) return;
 
     window.onSpotifyWebPlaybackSDKReady = async () => {
       const instance = new window.Spotify.Player({
         name: "Yfitops",
-        getOAuthToken: (cb) => authModel.ensureToken().then(cb),
+        getOAuthToken: (cb) => webSession.ensureToken().then(cb),
         volume: 1,
       });
 

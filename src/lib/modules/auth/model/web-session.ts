@@ -1,9 +1,10 @@
 import { atom, onMount } from "nanostores";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { fetch } from "@tauri-apps/plugin-http";
 import { totp } from "$lib/shared/api/totp";
 import { refreshBundleMeta } from "$lib/shared/api/pathfinder";
-import * as oauth from "./auth.model";
 
 /**
  * Exactly the session the web player runs on: the `sp_dc` cookie in exchange
@@ -20,12 +21,26 @@ let token: Token | null = null;
 let inflight: Promise<string> | null = null;
 
 export const $isAuthorized = atom(false);
+export const $isPending = atom(false);
 export const $error = atom<string | null>(null);
 
-const request = async (reason: "init" | "transport"): Promise<Token> => {
-  const cookie = await invoke<string | null>("spotify_cookie");
-  if (!cookie) throw new Error("Не вижу cookie входа — войди заново");
+const withPending = async (action: () => Promise<void>) => {
+  $isPending.set(true);
+  $error.set(null);
 
+  try {
+    await action();
+  } catch (err) {
+    $error.set(err instanceof Error ? err.message : String(err));
+  } finally {
+    $isPending.set(false);
+  }
+};
+
+const request = async (
+  reason: "init" | "transport",
+  cookie: string,
+): Promise<Token> => {
   const { code, version } = await totp();
 
   const query = new URLSearchParams({
@@ -63,49 +78,105 @@ export const ensureToken = (): Promise<string> => {
     return Promise.resolve(token.accessToken);
   }
 
-  inflight ??= request(token ? "transport" : "init")
-    .catch(async (err) => {
-      // a stale secret and a stale login differ only by the text of the
-      // answer, and the first one fixes itself — the bundle is re-read and
-      // the code recomputed from the version that comes with it
-      if (!/totp/i.test(String(err))) throw err;
+  inflight ??= (async () => {
+    const cookie = await invoke<string | null>("spotify_cookie");
 
-      await refreshBundleMeta();
-      return request("init");
-    })
-    .then((fresh) => {
+    // no cookie is not a failure — it is simply nobody signed in yet
+    if (!cookie) {
+      $isAuthorized.set(false);
+      return "";
+    }
+
+    const reason = token ? "transport" : "init";
+
+    try {
+      const fresh = await request(reason, cookie).catch(async (err) => {
+        // a stale secret and a stale login differ only by the text of the
+        // answer, and the first one fixes itself — the bundle is re-read and
+        // the code recomputed from the version that comes with it
+        if (!/totp/i.test(String(err))) throw err;
+
+        await refreshBundleMeta();
+        return request("init", cookie);
+      });
+
       token = fresh;
       $isAuthorized.set(true);
       $error.set(null);
+
       return fresh.accessToken;
-    })
-    .catch((err) => {
+    } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       $error.set(message);
       $isAuthorized.set(false);
       console.error("web session:", message);
+
       return "";
-    })
-    .finally(() => {
-      inflight = null;
-    });
+    }
+  })().finally(() => {
+    inflight = null;
+  });
 
   return inflight;
 };
 
+const LOGIN_URL =
+  "https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2F";
+const LOGOUT_URL = "https://www.spotify.com/logout/";
+const LANDED = "https://open.spotify.com";
+const AUTH_WINDOW = "oauth_window";
+
 /**
- * Signing in still goes through the old OAuth window — it is what puts the
- * cookie on the webview, and nothing here can do that on its own.
+ * No OAuth and no client id of our own: the user signs in on Spotify's own
+ * form exactly as they would in a browser, and the cookie it leaves behind is
+ * the whole credential. Landing back on the player means it worked.
  */
-export const login = async () => {
-  await oauth.login();
-  await ensureToken();
+const inWindow = async (url: string, done: (url: string) => boolean) => {
+  await invoke("create_auth_window", {
+    uri: url,
+    label: AUTH_WINDOW,
+    title: "Spotify",
+  });
+
+  const window = new WebviewWindow(AUTH_WINDOW);
+
+  await new Promise<void>((resolve) => {
+    let unlisten: UnlistenFn | null = null;
+
+    listen(
+      "change_navigation_url",
+      ({ payload }: { payload: { url: string } }) => {
+        if (!done(payload.url)) return;
+
+        unlisten?.();
+        window.close();
+        resolve();
+      },
+    ).then((off) => {
+      unlisten = off;
+    });
+  });
 };
 
-export const logout = () => {
-  token = null;
-  $isAuthorized.set(false);
-};
+export const login = () =>
+  withPending(async () => {
+    await inWindow(LOGIN_URL, (url) => url.startsWith(LANDED));
+    await ensureToken();
+
+    if (!$isAuthorized.get()) throw new Error($error.get() ?? "Вход не удался");
+  });
+
+/**
+ * Signing out has to happen on Spotify's side: the cookie is theirs, and there
+ * is no way to drop it from here.
+ */
+export const logout = () =>
+  withPending(async () => {
+    token = null;
+    $isAuthorized.set(false);
+
+    await inWindow(LOGOUT_URL, (url) => !url.includes("/logout"));
+  });
 
 onMount($isAuthorized, () => {
   ensureToken();

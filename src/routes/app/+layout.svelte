@@ -2,7 +2,7 @@
   import { goto } from "$app/navigation";
   import { Sidebar } from "$lib/modules/app/components/sidebar";
   import { appModel, devtoolsModel } from "$lib/modules/app/model";
-  import { authModel } from "$lib/modules/auth/model";
+  import { webSession } from "$lib/modules/auth/model";
   import { NowPlaying } from "$lib/modules/player/components/now-playing";
   import { Friends } from "$lib/modules/friends/components/friends";
   import { Queue } from "$lib/modules/player/components/queue";
@@ -15,8 +15,8 @@
 
   const { children }: LayoutProps = $props();
 
-  const isAuthorized = authModel.$isAuthorized;
-  const isPending = authModel.$isPending;
+  const isAuthorized = webSession.$isAuthorized;
+  const isPending = webSession.$isPending;
 
   const sidebarWidth = appModel.$sidebarWidth;
   const detailsWidth = appModel.$detailsWidth;
