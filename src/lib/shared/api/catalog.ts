@@ -13,8 +13,6 @@ const ARTIST_HASH =
   "ae0e2958a4ab645b35ca19ac04d0495ae12d9c5d7b7286217674801a9aab281a";
 const IN_LIBRARY_HASH =
   "134337999233cc6fdd6b1e6dbf94841409f04a946c5c7b744b09ba0dfe5a85ed";
-const TRACK_HASH =
-  "1a2f0cce77c90a4a5b1730beecc4da7e34290d684324c16663bf09a268ebce48";
 const DECORATE_HASH =
   "383de00240775c39a6afe0b1055dc562b2a3930894201f9762f3fc32a74971c7";
 
@@ -92,39 +90,27 @@ export const toTrack = (raw: RawTrack) =>
     },
   }) as unknown as SpotifyApi.TrackObjectFull;
 
-export const fetchTrack = async (id: string) => {
-  const data = await query<{ trackUnion?: RawTrack }>("getTrack", TRACK_HASH, {
-    uri: `spotify:track:${id}`,
-  });
-
-  // TODO: temporary — reading the real shape of the answer
-  console.log("getTrack raw:", JSON.stringify(data).slice(0, 1500));
-
-  if (!data.trackUnion?.uri) throw new Error(`Track ${id} not found`);
-
-  return toTrack(data.trackUnion);
-};
-
 /**
- * Bulk metadata for a queue: Connect decorates only the tracks nearest the
- * current one, the rest arrive as bare uris.
+ * Bulk metadata by uri. Named for the queue — Connect decorates only the
+ * tracks nearest the current one and the rest arrive bare — but it is the only
+ * operation that answers with the artists and the album, so everything that
+ * needs a whole track goes through it.
  */
 export const fetchTracks = async (uris: string[]) => {
-  const data = await query<{ decorateContextTracks?: RawTrack[] }>(
+  const data = await query<{ tracks?: RawTrack[] }>(
     "decorateContextTracks",
     DECORATE_HASH,
     { uris },
   );
 
-  // TODO: temporary — reading the real shape of the answer
-  console.log(
-    "decorateContextTracks raw:",
-    JSON.stringify(data).slice(0, 1500),
-  );
+  return (data.tracks ?? []).filter((raw) => raw?.uri).map(toTrack);
+};
 
-  return (data.decorateContextTracks ?? [])
-    .filter((raw) => raw?.uri)
-    .map(toTrack);
+export const fetchTrack = async (id: string) => {
+  const [track] = await fetchTracks([`spotify:track:${id}`]);
+  if (!track) throw new Error(`Track ${id} not found`);
+
+  return track;
 };
 
 type RawAlbum = {
