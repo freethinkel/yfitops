@@ -9,7 +9,7 @@ use librespot_core::{
 };
 use librespot_playback::{
     audio_backend,
-    config::{AudioFormat, PlayerConfig},
+    config::{AudioFormat, PlayerConfig, VolumeCtrl},
     mixer::{softmixer::SoftMixer, Mixer, MixerConfig},
     player::Player,
 };
@@ -121,7 +121,16 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
         .login5()
         .set_auth_token(token_of(token.clone(), TOKEN_TTL));
 
-    let mixer = Arc::new(SoftMixer::open(MixerConfig::default()).map_err(|err| err.to_string())?);
+    // Playback stays at full scale and the system mixer is what the volume is
+    // set with. Left to itself librespot starts at half, which its logarithmic
+    // mapping turns into about three percent — quiet enough to read as broken.
+    let mixer = Arc::new(
+        SoftMixer::open(MixerConfig {
+            volume_ctrl: VolumeCtrl::Fixed,
+            ..Default::default()
+        })
+        .map_err(|err| err.to_string())?,
+    );
     let volume = mixer.get_soft_volume();
     let backend = audio_backend::find(None).ok_or("no audio backend")?;
 
@@ -142,6 +151,9 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
 
     let config = ConnectConfig {
         name,
+        initial_volume: u16::MAX,
+        // the mixer is fixed anyway, so a remote slider would only lie
+        disable_volume: true,
         ..Default::default()
     };
 
