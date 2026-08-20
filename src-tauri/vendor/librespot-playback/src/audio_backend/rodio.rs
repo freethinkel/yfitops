@@ -259,10 +259,10 @@ impl Sink for RodioSink {
         // Assuming they're on average 1628 then a half second buffer is:
         // 44100 elements --> about 27 chunks
         //
-        // yfitops: a fifth of that. Whatever sits here is what a pause loses
-        // and what a switch has to throw away, and half a second of either is
-        // audible; ~100 ms is not, and still covers the gaps between writes.
-        while self.rodio_sink.len() > 5 {
+        // yfitops: half of that. Whatever sits here is what a pause loses and
+        // what a switch throws away, so half a second is audible — but too
+        // little starves the output between writes and the sound breaks up.
+        while self.rodio_sink.len() > 13 {
             // sleep and wait for rodio to drain a bit
             thread::sleep(Duration::from_millis(10));
         }

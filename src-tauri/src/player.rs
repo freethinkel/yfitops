@@ -275,7 +275,14 @@ fn with_player(
 #[tauri::command]
 pub fn player_play(app: AppHandle) -> Result<(), String> {
     with_player(&app, |player| player.play())?;
-    with_spirc(&app, |spirc| spirc.play())
+
+    with_spirc(&app, |spirc| {
+        // another device may have taken playback since — pressing play here is
+        // the same claim as starting a track, and without it Spirc ignores
+        // every command as long as it considers itself passive
+        activated(spirc)?;
+        spirc.play()
+    })
 }
 
 #[tauri::command]
