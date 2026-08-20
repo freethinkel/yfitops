@@ -22,6 +22,12 @@ let token: Token | null = null;
 let inflight: Promise<string> | null = null;
 
 export const $isAuthorized = atom(false);
+/**
+ * Every freshly issued token lands here. librespot holds one of its own and
+ * has no way of knowing it has lapsed, so whoever owns the session watches
+ * this and hands the new one over.
+ */
+export const $token = atom<Token | null>(null);
 export const $isPending = atom(false);
 export const $error = atom<string | null>(null);
 
@@ -33,6 +39,10 @@ const COOKIE_KEY = "sp_dc";
  * the source of truth while it has one; this only covers the next start.
  */
 const loginCookie = async () => {
+  // the webview still holds the cookie for a moment after the logout page has
+  // been asked to drop it, and writing it back would undo the sign-out
+  if (signingOut) return null;
+
   const fromWebview = await invoke<string | null>("spotify_cookie");
 
   if (fromWebview) {
@@ -126,7 +136,12 @@ export const ensureToken = (): Promise<string> => {
         return request("init", cookie);
       });
 
+      // a sign-out that started while this was in flight has already cleared
+      // everything; resolving now would sign the user straight back in
+      if (signingOut) return "";
+
       token = fresh;
+      $token.set(fresh);
       $isAuthorized.set(true);
       $error.set(null);
 
@@ -158,37 +173,49 @@ const AUTH_WINDOW = "oauth_window";
  * the whole credential. Landing back on the player means it worked.
  */
 const inWindow = async (url: string, done: (url: string) => boolean) => {
-  await invoke("create_auth_window", {
-    uri: url,
-    label: AUTH_WINDOW,
-    title: "Spotify",
-  });
-
-  const window = new WebviewWindow(AUTH_WINDOW);
-
+  const off: UnlistenFn[] = [];
+  let settle!: (reached: boolean) => void;
   // closing the window by hand has to end this too, or the promise never
   // settles and the button it was called from stays spinning for good
-  return new Promise<boolean>((resolve) => {
-    const off: UnlistenFn[] = [];
+  const landed = new Promise<boolean>((resolve) => (settle = resolve));
 
-    const finish = (reached: boolean) => {
-      off.forEach((stop) => stop());
-      off.length = 0;
-      resolve(reached);
-    };
+  const finish = (reached: boolean) => {
+    off.forEach((stop) => stop());
+    off.length = 0;
+    settle(reached);
+  };
 
-    listen(
+  // before the window exists, not after: logging out is a redirect off
+  // `/logout` within a couple of hundred milliseconds, and a listener
+  // registered in that gap never hears the one navigation it waits for
+  off.push(
+    await listen(
       "change_navigation_url",
       ({ payload }: { payload: { url: string } }) => {
         if (!done(payload.url)) return;
 
         finish(true);
-        window.close();
+        new WebviewWindow(AUTH_WINDOW).close();
       },
-    ).then((stop) => off.push(stop));
+    ),
+  );
 
-    window.onCloseRequested(() => finish(false)).then((stop) => off.push(stop));
-  });
+  try {
+    await invoke("create_auth_window", {
+      uri: url,
+      label: AUTH_WINDOW,
+      title: "Spotify",
+    });
+  } catch (err) {
+    finish(false);
+    throw err;
+  }
+
+  new WebviewWindow(AUTH_WINDOW)
+    .onCloseRequested(() => finish(false))
+    .then((stop) => off.push(stop));
+
+  return landed;
 };
 
 export const login = () =>
@@ -201,17 +228,25 @@ export const login = () =>
     if (!$isAuthorized.get()) throw new Error($error.get() ?? "Вход не удался");
   });
 
+let signingOut = false;
+
 /**
  * Signing out has to happen on Spotify's side: the cookie is theirs, and there
  * is no way to drop it from here.
  */
 export const logout = () =>
   withPending(async () => {
+    signingOut = true;
     token = null;
+    $token.set(null);
     localStorage.removeItem(COOKIE_KEY);
     $isAuthorized.set(false);
 
-    await inWindow(LOGOUT_URL, (url) => !url.includes("/logout"));
+    try {
+      await inWindow(LOGOUT_URL, (url) => !url.includes("/logout"));
+    } finally {
+      signingOut = false;
+    }
   });
 
 // through `withPending` on purpose: the app layout sends anyone who is neither

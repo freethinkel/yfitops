@@ -62,16 +62,24 @@ const setRepeat = (mode: "off" | "context" | "track") =>
  */
 let restored: { uris: string[]; position: number } | null = null;
 
-const claimPlayback = async (pending: NonNullable<typeof restored>) => {
+const claimPlayback = async (
+  pending: NonNullable<typeof restored>,
+  from?: string,
+) => {
   restored = null;
+
+  // skipping before anything has been claimed is still the first load, only
+  // aimed a track further along — and the position belongs to the track that
+  // was on screen, so it goes with nothing else
+  const index = from ? Math.max(0, pending.uris.indexOf(from)) : 0;
 
   // the same call a click in a playlist makes — Spirc starts on its own, so
   // there is no play to send after it, and the position goes in with the load
   // rather than as a seek afterwards, which would be heard as a false start
   await invoke("player_load_tracks", {
     uris: pending.uris,
-    index: 0,
-    seekTo: Math.round(pending.position),
+    index,
+    seekTo: index ? 0 : Math.round(pending.position),
   });
 };
 
@@ -134,6 +142,25 @@ const asQueueTrackFromState = (state: Spotify.PlaybackState): QueueTrack => {
  */
 let expected = "";
 let skipTimer: ReturnType<typeof setTimeout> | null = null;
+let expectTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Long enough for the player to fetch the track and report it, short enough
+ * that a wait nobody will end is not one the user sits through.
+ */
+const EXPECT_TIMEOUT_MS = 8_000;
+
+/**
+ * Nothing else may clear this: a jump that fails, or lands on a track the
+ * player skips past unavailable, would otherwise leave it set for good — and
+ * with it set every event is dropped and the interface stops moving at all.
+ */
+const expect = (uri: string) => {
+  expected = uri;
+
+  if (expectTimer) clearTimeout(expectTimer);
+  expectTimer = uri ? setTimeout(() => expect(""), EXPECT_TIMEOUT_MS) : null;
+};
 
 /**
  * Switching shows the new track at once and sends a single command for the
@@ -147,12 +174,18 @@ const skipBy = (delta: number) => {
 
   const current = asQueueTrackFromState(state);
   const target = delta > 0 ? queue.shift() : history.pop();
-  if (!target) return;
+
+  if (!target) {
+    // what the button promises when there is nothing behind, and what every
+    // other player does with it
+    if (delta < 0) seek(0);
+    return;
+  }
 
   if (delta > 0) history.push(current);
   else queue.unshift(current);
 
-  expected = target.uri;
+  expect(target.uri);
 
   // the track being left behind would otherwise keep playing until the next
   // one has loaded, which is most of a second of the wrong music
@@ -181,14 +214,26 @@ const skipBy = (delta: number) => {
   skipTimer = setTimeout(() => {
     skipTimer = null;
 
-    invoke("player_skip_to", { uri: expected })
+    // the state we opened onto is Connect's: our player holds nothing yet, and
+    // a jump against nothing is refused — the claim is what loads the list, so
+    // it is made here with the target named instead
+    const jump = restored
+      ? claimPlayback(restored, expected)
+      : invoke("player_skip_to", { uri: expected });
+
+    jump
       .then(() => {
         // the jump makes Spirc rebuild its queue, so the local one has to be
         // read back — otherwise the two drift apart and the next press picks a
         // track the player is no longer anywhere near
         scheduleSync();
       })
-      .catch((err) => reportError("player skip", err));
+      .catch((err) => {
+        // nothing is going to confirm a jump that never happened
+        expect("");
+        loadQueue();
+        reportError("player skip", err);
+      });
   }, SKIP_DEBOUNCE_MS);
 };
 
@@ -313,9 +358,18 @@ export const seekBy = (deltaMs: number) => {
   seek(Math.min(Math.max($position.get() + deltaMs, 0), duration));
 };
 
+/**
+ * Whatever was played before is behind a different context now: stepping back
+ * into it would ask the player for a track it is nowhere near.
+ */
+const forgetHistory = () => (history.length = 0);
+
 /** A bare list of tracks — liked songs have no context uri of their own. */
-const startPlayback = (uris: string[], index = 0) =>
-  invoke("player_load_tracks", { uris, index });
+const startPlayback = (uris: string[], index = 0) => {
+  forgetHistory();
+
+  return invoke("player_load_tracks", { uris, index });
+};
 
 /**
  * Every one of these is called straight from a click handler, so a rejection
@@ -358,7 +412,11 @@ export const shuffleContext = (uri: string) =>
   });
 
 /** Plays a whole playlist, album or artist by its uri. */
-const startContext = (uri: string) => invoke("player_load_context", { uri });
+const startContext = (uri: string) => {
+  forgetHistory();
+
+  return invoke("player_load_context", { uri });
+};
 
 export const playContext = (uri: string) =>
   withDevice("playContext", () => startContext(uri));
@@ -476,7 +534,7 @@ const loadQueue = async () => {
   const accessToken = await token();
 
   if (!accessToken) {
-    $queueError.set("Очередь читается через internal-сессию — включи её");
+    $queueError.set("Очередь читается веб-сессией — войди заново");
     return;
   }
 
@@ -688,6 +746,9 @@ const retick = (paused: boolean) => {
   }, 500);
 };
 
+/** Events arrive faster than the metadata each one may need to look up. */
+let eventChain: Promise<unknown> = Promise.resolve();
+
 const applyEvent = async (event: PlayerEvent) => {
   if (event.kind === "end") return;
 
@@ -699,7 +760,7 @@ const applyEvent = async (event: PlayerEvent) => {
   // being left behind would only pull the interface back to it
   if (expected) {
     if (uri !== expected) return;
-    expected = "";
+    expect("");
   }
 
   const changed = uri !== previous?.track_window.current_track.uri;
@@ -715,7 +776,9 @@ const applyEvent = async (event: PlayerEvent) => {
     // the field the SDK used to report: fetched and decoded, but no sound yet.
     // Anything that reports a position means sound is out, so the wait is over
     loading: event.kind === "loading",
-    position: event.position_ms ?? previous?.position ?? 0,
+    // a track event carries no position, and the one the previous track was
+    // at is the one thing it certainly is not
+    position: event.position_ms ?? (changed ? 0 : (previous?.position ?? 0)),
     duration: track?.duration_ms ?? previous?.duration ?? 0,
     shuffle: previous?.shuffle ?? false,
     repeat_mode: previous?.repeat_mode ?? 0,
@@ -810,9 +873,48 @@ const restoreState = async () => {
   publishNowPlaying(playback);
 };
 
+/** librespot serves its cached token until the lifetime it was given runs out. */
+const secondsLeft = (expiresAt: number) =>
+  Math.max(1, Math.round((expiresAt - Date.now()) / 1000));
+
+/** The token the running session was last given, so it is not handed twice. */
+let handed = "";
+
+/**
+ * The session outlives the token it started on, and librespot has no way of
+ * fetching another — ours was issued to the web player, which is exactly what
+ * login5 refuses. So every renewal is pushed in as it is issued; without it
+ * metadata, CDN urls and audio keys all start answering 401 within the hour.
+ */
+const handToken = ({
+  accessToken,
+  expiresAt,
+}: {
+  accessToken: string;
+  expiresAt: number;
+}) => {
+  handed = accessToken;
+
+  return invoke("player_set_token", {
+    token: accessToken,
+    expiresIn: secondsLeft(expiresAt),
+  }).catch((err) => {
+    // nothing to hand it to yet: `start` passes the current one itself
+    if (String(err).includes("session is not running")) return;
+
+    reportError("player token", err);
+  });
+};
+
 const start = async () => {
+  const token = await webSession.ensureToken();
+  const expiresAt = webSession.$token.get()?.expiresAt ?? Date.now();
+
+  handed = token;
+
   const id = await invoke<string>("player_start", {
-    token: await webSession.ensureToken(),
+    token,
+    expiresIn: secondsLeft(expiresAt),
     name: "Yfitops",
   });
 
@@ -838,14 +940,23 @@ onMount($playerState, () => {
   // two tracks
   const listeners: Promise<UnlistenFn>[] = [];
 
+  const stopToken = webSession.$token.subscribe((fresh) => {
+    if (fresh && fresh.accessToken !== handed) handToken(fresh);
+  });
+
   const stop = webSession.whenAuthorized(async () => {
     if (starting) return;
     starting = true;
 
     listeners.push(
-      listen<PlayerEvent>("player-event", ({ payload }) =>
-        applyEvent(payload).catch((err) => reportError("player event", err)),
-      ),
+      listen<PlayerEvent>("player-event", ({ payload }) => {
+        // one at a time: each handler reads the state the previous one left,
+        // and two of them in flight apply in whichever order their metadata
+        // lookups happen to finish
+        eventChain = eventChain
+          .then(() => applyEvent(payload))
+          .catch((err) => reportError("player event", err));
+      }),
       // the keys land in Rust and come back here, so a press runs exactly what
       // a click on the same button runs
       listen<string>("media-key", ({ payload }) => onMediaKey(payload)),
@@ -853,6 +964,21 @@ onMount($playerState, () => {
       // every button stays dead until the app is restarted
       listen("player-gone", () => {
         registered = new Promise((resolve) => (announceDevice = resolve));
+
+        // the session that replaces this one starts empty, and `restoreState`
+        // steps aside as long as there is a state on screen — without this the
+        // transport buttons reach an idle Spirc and do nothing at all
+        const state = $playerState.get();
+
+        if (state) {
+          restored = {
+            uris: [
+              state.track_window.current_track.uri,
+              ...($queue.get() ?? []).map((track) => track.uri),
+            ].filter((uri) => uri?.startsWith("spotify:track:")),
+            position: $position.get(),
+          };
+        }
 
         setTimeout(
           () => start().catch((err) => reportError("player restart", err)),
@@ -873,6 +999,8 @@ onMount($playerState, () => {
     listeners.forEach((pending) => pending.then((off) => off()));
     listeners.length = 0;
     starting = false;
+    handed = "";
+    stopToken();
     stop();
   };
 });

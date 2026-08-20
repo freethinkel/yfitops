@@ -138,6 +138,7 @@ pub fn run() {
             create_auth_window,
             cookies::spotify_cookie,
             player::player_start,
+            player::player_set_token,
             player::player_play,
             player::player_pause,
             player::player_halt,

@@ -35,11 +35,16 @@ onMount($friends, () => {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let failures = 0;
   let started = false;
+  let stopped = false;
 
   // a fixed interval keeps hammering a service that is already refusing, so
   // each failure in a row doubles the wait and the first success resets it
   const tick = async () => {
     await load();
+    // the store came off while this request was in flight: scheduling now
+    // would leave a chain nobody owns polling for the rest of the session
+    if (stopped) return;
+
     failures = $error.get() ? Math.min(failures + 1, 4) : 0;
     timer = setTimeout(tick, REFRESH_MS * 2 ** failures);
   };
@@ -52,6 +57,7 @@ onMount($friends, () => {
   });
 
   return () => {
+    stopped = true;
     if (timer) clearTimeout(timer);
     unbind();
     stop();

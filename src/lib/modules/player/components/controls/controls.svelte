@@ -17,7 +17,7 @@
   >
     <Icon name="shuffle" size={20} />
   </button>
-  <!-- always live: the player restarts the track when there is nothing behind -->
+  <!-- always live: with nothing behind it, the track starts over -->
   <button
     aria-label={$t.previousTrack}
     onclick={() => playerModel.prevTrack()}

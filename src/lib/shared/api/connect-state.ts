@@ -83,29 +83,6 @@ export const command = async ({
 };
 
 /**
- * Hands the session over to a device without starting it — Spotify keeps the
- * last playback server-side, so this is what brings it back.
- */
-export const transfer = async ({
-  accessToken,
-  deviceId,
-}: {
-  accessToken: string;
-  deviceId: string;
-}) => {
-  const response = await fetch(
-    `${BASE}/connect/transfer/from/${SENDER_ID}/to/${deviceId}`,
-    {
-      method: "POST",
-      headers: { ...headers(accessToken), "content-type": "application/json" },
-      body: JSON.stringify({ transfer_options: { restore_paused: "restore" } }),
-    },
-  );
-
-  if (!response.ok) throw await failed("transfer", response);
-};
-
-/**
  * Replaces the queue wholesale. `queue_revision` guards against overwriting a
  * change made elsewhere, so it has to come from a fresh cluster read.
  */

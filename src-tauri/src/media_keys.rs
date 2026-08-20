@@ -65,7 +65,12 @@ pub fn install(app: AppHandle) {
 }
 
 unsafe fn string(value: &str) -> id {
-    NSString::alloc(nil).init_str(value)
+    let raw: id = NSString::alloc(nil).init_str(value);
+    // `init_str` hands back a +1 reference, and everything here is dropped
+    // into the pool below rather than released by hand
+    let _: id = msg_send![raw, autorelease];
+
+    raw
 }
 
 unsafe fn number(value: f64) -> id {
@@ -97,6 +102,11 @@ fn publish(
     playing: bool,
 ) {
     unsafe {
+        // this runs off the main thread, where there is no pool in place, and
+        // it runs on every player event — the autoreleased strings, numbers
+        // and the dictionary itself would pile up for the whole session
+        let pool: id = msg_send![class!(NSAutoreleasePool), new];
+
         let info: id = msg_send![class!(NSMutableDictionary), dictionary];
 
         let title_key = string("title");
@@ -119,5 +129,7 @@ fn publish(
         // MPNowPlayingPlaybackState: 1 playing, 2 paused
         let state: NSInteger = if playing { 1 } else { 2 };
         let _: () = msg_send![center, setPlaybackState: state];
+
+        let _: () = msg_send![pool, release];
     }
 }

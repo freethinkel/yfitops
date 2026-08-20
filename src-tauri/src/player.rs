@@ -28,7 +28,6 @@ const WEB_PLAYER_VERSION: &str = "1.2.98.104.ga2fc9a0c-development";
 /// Port 4070 is filtered on some networks; 443 always answers.
 const AP_PORT: u16 = 443;
 const CLIENT_TOKEN_TTL: Duration = Duration::from_secs(1_209_600);
-const TOKEN_TTL: Duration = Duration::from_secs(3_000);
 
 /// What was last handed to Spirc. Jumping to a track means loading the same
 /// thing again and naming the track to start from — Spirc has no "skip to" of
@@ -47,6 +46,9 @@ pub struct PlayerHandle(
     /// one finishes its task afterwards, and without this it would clear the
     /// handles of the session that replaced it.
     AtomicU64,
+    /// Kept so a renewed access token can be handed over without building a
+    /// new session around it.
+    Mutex<Option<Session>>,
 );
 
 #[derive(Serialize, Clone)]
@@ -106,16 +108,29 @@ async fn fetch_client_token(device_id: &str) -> Result<String, String> {
 
 /// Starts playback for this session and returns the device id — the queue is
 /// still edited over Connect, which addresses devices by it. Safe to call
-/// again: an existing device is shut down first, which is what happens when
-/// the access token is renewed.
+/// again: an existing device is shut down first. `expires_in` is how long the
+/// access token has left, in seconds; a renewal afterwards goes through
+/// `player_set_token` rather than through here.
 #[tauri::command]
-pub async fn player_start(app: AppHandle, token: String, name: String) -> Result<String, String> {
+pub async fn player_start(
+    app: AppHandle,
+    token: String,
+    expires_in: u64,
+    name: String,
+) -> Result<String, String> {
     let generation = {
         let handle = app.state::<PlayerHandle>();
 
         if let Some(spirc) = handle.0.lock().unwrap().take() {
             let _ = spirc.shutdown();
         }
+
+        // whatever is left below belongs to the session just shut down: an
+        // early return would leave it installed, and every command against a
+        // stopped player would answer Ok
+        *handle.1.lock().unwrap() = None;
+        *handle.2.lock().unwrap() = None;
+        *handle.4.lock().unwrap() = None;
 
         handle.3.fetch_add(1, Ordering::Relaxed) + 1
     };
@@ -141,10 +156,12 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
         .set_client_token(token_of(client_token, CLIENT_TOKEN_TTL));
 
     // login5 would refuse this token for being issued to another client, but
-    // the token itself is good — Spirc only ever needed it to call spclient
+    // the token itself is good — Spirc only ever needed it to call spclient.
+    // The lifetime has to be the real one: login5 serves the cached token
+    // until it says it has expired, and an overstated one is served dead
     session
         .login5()
-        .set_auth_token(token_of(token.clone(), TOKEN_TTL));
+        .set_auth_token(token_of(token.clone(), Duration::from_secs(expires_in)));
 
     // Playback stays at full scale and the system mixer is what the volume is
     // set with. Left to itself librespot starts at half, which its logarithmic
@@ -191,7 +208,7 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
 
     let (spirc, task) = Spirc::new(
         config,
-        session,
+        session.clone(),
         Credentials::with_access_token(token),
         player.clone(),
         mixer,
@@ -214,6 +231,7 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
 
         *handle.0.lock().unwrap() = None;
         *handle.1.lock().unwrap() = None;
+        *handle.4.lock().unwrap() = None;
 
         let _ = gone.emit("player-gone", ());
     });
@@ -221,8 +239,25 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
     let handle = app.state::<PlayerHandle>();
     *handle.0.lock().unwrap() = Some(spirc);
     *handle.1.lock().unwrap() = Some(player);
+    *handle.4.lock().unwrap() = Some(session);
 
     Ok(device_id)
+}
+
+/// The access token the app runs on lasts an hour and the session outlives it.
+/// Without this every spclient call — metadata, CDN urls, audio keys — starts
+/// answering 401 the moment it lapses.
+#[tauri::command]
+pub fn player_set_token(app: AppHandle, token: String, expires_in: u64) -> Result<(), String> {
+    let handle = app.state::<PlayerHandle>();
+    let guard = handle.4.lock().unwrap();
+    let session = guard.as_ref().ok_or("session is not running")?;
+
+    session
+        .login5()
+        .set_auth_token(token_of(token, Duration::from_secs(expires_in)));
+
+    Ok(())
 }
 
 fn to_payload(event: &librespot_playback::player::PlayerEvent) -> Option<PlayerEventPayload> {
