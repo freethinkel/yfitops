@@ -1,4 +1,4 @@
-import { internalSession } from "$lib/modules/auth/model";
+import { webSession } from "$lib/modules/auth/model";
 import { pathfinderQuery } from "$lib/shared/api/pathfinder";
 
 /**
@@ -71,7 +71,7 @@ export const fetchInternalPlaylist = async (id: string) => {
   const data = await pathfinderQuery<RawPlaylist>({
     operationName: "fetchPlaylist",
     fallbackHash: FETCH_PLAYLIST_HASH,
-    accessToken: await internalSession.ensureToken(),
+    accessToken: await webSession.ensureToken(),
     variables: {
       uri: `spotify:playlist:${id}`,
       offset: 0,

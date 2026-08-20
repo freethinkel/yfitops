@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { fetch } from "@tauri-apps/plugin-http";
 import { totp } from "$lib/shared/api/totp";
 import { refreshBundleMeta } from "$lib/shared/api/pathfinder";
+import * as oauth from "./auth.model";
 
 /**
  * Exactly the session the web player runs on: the `sp_dc` cookie in exchange
@@ -90,6 +91,15 @@ export const ensureToken = (): Promise<string> => {
     });
 
   return inflight;
+};
+
+/**
+ * Signing in still goes through the old OAuth window — it is what puts the
+ * cookie on the webview, and nothing here can do that on its own.
+ */
+export const login = async () => {
+  await oauth.login();
+  await ensureToken();
 };
 
 export const logout = () => {

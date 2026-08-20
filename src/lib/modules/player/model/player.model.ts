@@ -1,5 +1,5 @@
 import { atom, computed, onMount } from "nanostores";
-import { authModel, internalSession } from "$lib/modules/auth/model";
+import { authModel, webSession } from "$lib/modules/auth/model";
 import {
   getCluster,
   setQueue,
@@ -287,7 +287,7 @@ export type QueueTrack = {
 export const $queue = atom<QueueTrack[] | null>(null);
 export const $queueError = atom<string | null>(null);
 
-const token = () => internalSession.ensureToken();
+const token = () => webSession.ensureToken();
 
 type TrackMeta = Pick<QueueTrack, "name" | "artist" | "image" | "durationMs">;
 

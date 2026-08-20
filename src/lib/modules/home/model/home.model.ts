@@ -1,5 +1,5 @@
 import { atom, onMount } from "nanostores";
-import { internalSession } from "$lib/modules/auth/model";
+import { webSession } from "$lib/modules/auth/model";
 import { pathfinderQuery } from "$lib/shared/api/pathfinder";
 import { persisted, read, write } from "$lib/shared/helpers/persisted";
 import type { FeedSection } from "../types";
@@ -22,8 +22,8 @@ export const $sections = atom<FeedSection[] | null>(null);
 export const $isPending = atom(false);
 export const $error = atom<string | null>(null);
 
-export const $isEnabled = internalSession.$isAuthorized;
-export const enable = internalSession.login;
+export const $isEnabled = webSession.$isAuthorized;
+export const enable = webSession.login;
 
 const load = async () => {
   $isPending.set(true);
@@ -33,7 +33,7 @@ const load = async () => {
     const response = await pathfinderQuery<HomeResponse>({
       operationName: "home",
       fallbackHash: HOME_QUERY_HASH,
-      accessToken: await internalSession.ensureToken(),
+      accessToken: await webSession.ensureToken(),
       variables: {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         sp_t: localStorage.getItem("pathfinder_device_id") ?? "",
@@ -96,7 +96,7 @@ onMount($sections, () => {
     persisted($greeting, GREETING),
   ];
 
-  const stop = internalSession.$isAuthorized.subscribe((authorized) => {
+  const stop = webSession.$isAuthorized.subscribe((authorized) => {
     if (authorized) loadIfStale();
   });
 

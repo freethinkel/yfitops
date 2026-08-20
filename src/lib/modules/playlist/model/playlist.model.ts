@@ -5,7 +5,7 @@ import {
   type ReadableAtom,
   type WritableAtom,
 } from "nanostores";
-import { authModel, internalSession } from "$lib/modules/auth/model";
+import { authModel, webSession } from "$lib/modules/auth/model";
 import { userModel } from "$lib/modules/user/model";
 import { spotifyApi } from "$lib/shared/api/spotify";
 import { httpError } from "$lib/shared/api/http-error";
@@ -144,7 +144,7 @@ export const playlist = (id: string) =>
       return await spotifyApi.getPlaylist(id);
     } catch (err) {
       // Algorithmic playlists are 404 on the Web API — the gateway has them.
-      if (!internalSession.$isAuthorized.get()) throw err;
+      if (!webSession.$isAuthorized.get()) throw err;
       return fetchInternalPlaylist(id);
     }
   });
