@@ -12,6 +12,8 @@ export const httpError = (scope: string, response: Response) => {
   const after = response.headers.get("retry-after");
 
   return new Error(
-    after ? `${scope}: rate limited, retry in ${after}s` : `${scope}: rate limited`,
+    after
+      ? `${scope}: rate limited, retry in ${after}s`
+      : `${scope}: rate limited`,
   );
 };

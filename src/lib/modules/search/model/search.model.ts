@@ -1,5 +1,5 @@
 import { atom, onMount } from "nanostores";
-import { spotifyApi } from "$lib/shared/api/spotify";
+import { fetchTrack, searchAll } from "$lib/shared/api/catalog";
 import { parseSpotifyLink } from "$lib/shared/helpers/spotify-link";
 
 const DEBOUNCE_MS = 300;
@@ -47,7 +47,7 @@ onMount($results, () => {
         const link = parseSpotifyLink(query.trim());
 
         if (link?.kind === "track") {
-          const track = await spotifyApi.getTrack(link.id);
+          const track = await fetchTrack(link.id);
           if (request !== latest) return;
 
           $results.set({
@@ -59,20 +59,16 @@ onMount($results, () => {
           return;
         }
 
-        const res = await spotifyApi.search(
-          query,
-          ["track", "artist", "album", "playlist"],
-          { limit: LIMIT },
-        );
+        const res = await searchAll(query, LIMIT);
 
         if (request !== latest) return;
 
         // Spotify sometimes pads these lists with nulls
         $results.set({
-          tracks: (res.tracks?.items ?? []).filter(Boolean),
-          artists: (res.artists?.items ?? []).filter(Boolean),
-          albums: (res.albums?.items ?? []).filter(Boolean),
-          playlists: (res.playlists?.items ?? []).filter(Boolean),
+          tracks: res.tracks.filter(Boolean),
+          artists: res.artists.filter(Boolean),
+          albums: res.albums.filter(Boolean),
+          playlists: res.playlists.filter(Boolean),
         });
       } finally {
         if (request === latest) $isPending.set(false);

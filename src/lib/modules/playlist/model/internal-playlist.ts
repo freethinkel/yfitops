@@ -29,13 +29,21 @@ type RawPlaylist = {
     description?: string;
     images?: { items?: { sources?: { url?: string }[] }[] };
     ownerV2?: { data?: { name?: string } };
-    content?: { items?: { itemV2?: { data?: RawTrack } }[] };
+    content?: { items?: { uid?: string; itemV2?: { data?: RawTrack } }[] };
   };
 };
 
 const idOf = (uri = "") => uri.split(":").pop() ?? "";
 
-const toTrack = (raw: RawTrack): SpotifyApi.TrackObjectFull | null => {
+/**
+ * `uid` identifies the row inside this playlist rather than the track itself —
+ * removing an item goes by it, because the same track may sit in the list more
+ * than once.
+ */
+const toTrack = (
+  raw: RawTrack,
+  uid = "",
+): SpotifyApi.TrackObjectFull | null => {
   if (!raw.uri || !raw.name) return null;
 
   const id = idOf(raw.uri);
@@ -49,6 +57,7 @@ const toTrack = (raw: RawTrack): SpotifyApi.TrackObjectFull | null => {
 
   return {
     id,
+    uid,
     uri: raw.uri,
     name: raw.name,
     duration_ms: raw.trackDuration?.totalMilliseconds ?? 0,
@@ -86,7 +95,7 @@ export const fetchInternalPlaylist = async (id: string) => {
   }
 
   const tracks = (raw.content?.items ?? [])
-    .map((item) => toTrack(item.itemV2?.data ?? {}))
+    .map((item) => toTrack(item.itemV2?.data ?? {}, item.uid))
     .filter((track): track is SpotifyApi.TrackObjectFull => track !== null);
 
   return {

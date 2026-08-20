@@ -1,15 +1,16 @@
 import { atom, onMount } from "nanostores";
-import { authModel } from "$lib/modules/auth/model";
-import { spotifyApi } from "$lib/shared/api/spotify";
+import { webSession } from "$lib/modules/auth/model";
+import { fetchProfile } from "$lib/shared/api/library";
+import { fetchUser } from "$lib/shared/api/catalog";
 
 export const $userData = atom<SpotifyApi.CurrentUsersProfileResponse | null>(
   null,
 );
 
 onMount($userData, () =>
-  authModel.whenAuthorized(async () => {
+  webSession.whenAuthorized(async () => {
     if ($userData.get()) return;
-    $userData.set(await spotifyApi.getMe());
+    $userData.set(await fetchProfile());
   }),
 );
 
@@ -29,15 +30,10 @@ export const user = (id: string) => {
   const $user = atom<UserPage | null>(null);
 
   onMount($user, () =>
-    authModel.whenAuthorized(async () => {
+    webSession.whenAuthorized(async () => {
       if ($user.get()) return;
 
-      const [profile, playlists] = await Promise.all([
-        spotifyApi.getUser(id),
-        spotifyApi.getUserPlaylists(id, { limit: 50 }),
-      ]);
-
-      $user.set({ profile, playlists: [...playlists.items] });
+      $user.set(await fetchUser(id));
     }),
   );
 

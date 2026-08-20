@@ -17,7 +17,13 @@
   import { libraryMessages, menuMessages } from "$lib/modules/i18n";
 
   /** Playlists and liked songs know when a track was added; nothing else does. */
-  type TrackRow = SpotifyApi.TrackObjectFull & { added_at?: string };
+  type TrackRow = SpotifyApi.TrackObjectFull & {
+    added_at?: string;
+    /** Set on playlist rows only — removal goes by position, not by track. */
+    uid?: string;
+  };
+
+  const uidOf = (track: TrackRow) => track.uid ?? "";
 
   interface Props {
     /** undefined while loading — the table then draws itself as skeletons */
@@ -315,12 +321,13 @@
           icon: NativeIcon.ListView,
           action: () => playerModel.addToQueue(track.uri),
         }),
-        ...(removeFrom
+        ...(removeFrom && uidOf(track)
           ? [
               IconMenuItem.new({
                 text: $tm.removeFromPlaylist,
                 icon: NativeIcon.Remove,
-                action: () => playlistModel.removeFromPlaylist(removeFrom, track.uri),
+                action: () =>
+                  playlistModel.removeFromPlaylist(removeFrom, uidOf(track)),
               }),
             ]
           : []),
