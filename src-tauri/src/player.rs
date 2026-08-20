@@ -85,10 +85,12 @@ async fn fetch_client_token(device_id: &str) -> Result<String, String> {
         .ok_or_else(|| format!("client token refused: {response}"))
 }
 
-/// Starts playback for this session. Safe to call again — an existing device is
-/// shut down first, which is what happens when the access token is renewed.
+/// Starts playback for this session and returns the device id — the queue is
+/// still edited over Connect, which addresses devices by it. Safe to call
+/// again: an existing device is shut down first, which is what happens when
+/// the access token is renewed.
 #[tauri::command]
-pub async fn player_start(app: AppHandle, token: String, name: String) -> Result<(), String> {
+pub async fn player_start(app: AppHandle, token: String, name: String) -> Result<String, String> {
     if let Some(spirc) = app.state::<PlayerHandle>().0.lock().unwrap().take() {
         let _ = spirc.shutdown();
     }
@@ -106,8 +108,9 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
     .map_err(|err| err.to_string())?;
 
     let session = Session::new(config, Some(cache));
+    let device_id = session.device_id().to_string();
 
-    let client_token = fetch_client_token(session.device_id()).await?;
+    let client_token = fetch_client_token(&device_id).await?;
     session
         .spclient()
         .set_client_token(token_of(client_token, CLIENT_TOKEN_TTL));
@@ -150,7 +153,7 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
 
     *app.state::<PlayerHandle>().0.lock().unwrap() = Some(spirc);
 
-    Ok(())
+    Ok(device_id)
 }
 
 fn to_payload(event: &librespot_playback::player::PlayerEvent) -> Option<PlayerEventPayload> {

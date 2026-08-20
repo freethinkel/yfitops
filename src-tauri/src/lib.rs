@@ -110,12 +110,11 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|_app| {
-            // built here, not from the config, so the SDK's iframe gets the
-            // media-session script — see media_session.js
+            // the config marks the window `create: false` and it is built here
+            // instead, so the macOS titlebar work below runs against a window
+            // that already exists
             let config = _app.config().app.windows[0].clone();
-            WebviewWindowBuilder::from_config(_app, &config)?
-                .initialization_script_for_all_frames(include_str!("media_session.js"))
-                .build()?;
+            WebviewWindowBuilder::from_config(_app, &config)?.build()?;
 
             #[cfg(target_os = "macos")]
             for (_, window) in _app.webview_windows().iter() {

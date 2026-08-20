@@ -1,22 +1,27 @@
 import { atom, computed, onMount } from "nanostores";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { webSession } from "$lib/modules/auth/model";
 import {
-  command,
   getCluster,
   setQueue,
   skipTo,
-  transfer,
   type QueueEntry,
 } from "$lib/shared/api/connect-state";
 import {
   $likedSongs,
   toggleLike,
 } from "$lib/modules/playlist/model/playlist.model";
-import { fetchTracks } from "$lib/shared/api/catalog";
+import { fetchTrack, fetchTracks } from "$lib/shared/api/catalog";
 import { getAccentColorFromImage } from "$lib/shared/helpers/color";
 import { reportError } from "$lib/shared/helpers/errors";
-import { loadWebSdk } from "./web-sdk";
 
+/**
+ * Playback happens in Rust now — librespot decodes the stream itself, so
+ * nothing here touches the Web Playback SDK, Widevine or the public Web API.
+ * The shape below is the one the SDK used to report, kept as it was so the
+ * components reading it stay untouched.
+ */
 export const $playerState = atom<Spotify.PlaybackState | null>(null);
 /**
  * Ticks twice a second, so it lives apart from `$playerState` — otherwise every
@@ -25,63 +30,44 @@ export const $playerState = atom<Spotify.PlaybackState | null>(null);
 export const $position = atom(0);
 export const $trackColor = atom("transparent");
 
-let player: Spotify.Player | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let colorSource = "";
 
+/** Connect still addresses the queue by device, and Rust owns that id. */
 let announceDevice!: (id: string) => void;
 let registered = new Promise<string>((resolve) => (announceDevice = resolve));
 
-/**
- * The track list draws itself from cache, so it is clickable long before the
- * SDK has fetched its script and registered a device. Sending the empty id
- * that early is what the Web API answers with a 404, so playback waits for the
- * real one instead. The timeout keeps a player that never arrives — no
- * Premium, no output device — from swallowing the click in silence.
- */
-const DEVICE_TIMEOUT = 10_000;
+const DEVICE_TIMEOUT = 15_000;
 
 const device = () =>
   Promise.race([
     registered,
     new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error("The Spotify player never became ready")),
+        () => reject(new Error("The player never became ready")),
         DEVICE_TIMEOUT,
       ),
     ),
   ]);
 
-/** Every player command goes down Connect's own channel, same as the queue. */
-const send = async (endpoint: string, payload?: Record<string, unknown>) =>
-  command({
-    accessToken: await webSession.ensureToken(),
-    deviceId: await device(),
-    endpoint,
-    payload,
-  });
+const setShuffle = (shuffle: boolean) =>
+  invoke("player_set_shuffle", { shuffle });
 
-const setShuffle = (state: boolean) =>
-  send("set_options", { shuffling_context: state });
+const setRepeat = (mode: "off" | "context" | "track") =>
+  invoke("player_set_repeat", { mode });
 
-const setRepeat = (state: "off" | "context" | "track") =>
-  send("set_options", {
-    repeating_context: state === "context",
-    repeating_track: state === "track",
-  });
-
-export const togglePlaypause = () => player?.togglePlay();
+export const togglePlaypause = () =>
+  invoke("player_play_pause").catch((err) =>
+    reportError("player play/pause", err),
+  );
 export const nextTrack = () => {
   // whatever was first in the queue is the track now starting
   const queue = $queue.get();
   if (queue?.length) optimistic(queue.slice(1));
 
-  player?.nextTrack();
+  invoke("player_next").catch((err) => reportError("player next", err));
 };
-/**
- * Shuffle and repeat live in the playback state the SDK reports, but only the
- * Web API can change them.
- */
+
 type ToggleKey = "shuffle" | "repeat_mode";
 
 /**
@@ -152,7 +138,8 @@ export const cycleRepeat = () => {
   return sendToggle("repeat_mode", (mode + 1) % 3, () => setRepeat(next));
 };
 
-export const prevTrack = () => player?.previousTrack();
+export const prevTrack = () =>
+  invoke("player_previous").catch((err) => reportError("player previous", err));
 
 export const $currentLiked = computed(
   [$playerState, $likedSongs],
@@ -186,7 +173,10 @@ export const toggleCurrentLike = () => {
 };
 
 export const seek = (position: number) => {
-  player?.seek(position);
+  invoke("player_seek", { positionMs: Math.round(position) }).catch((err) =>
+    reportError("player seek", err),
+  );
+
   $position.set(position);
 };
 
@@ -195,22 +185,9 @@ export const seekBy = (deltaMs: number) => {
   seek(Math.min(Math.max($position.get() + deltaMs, 0), duration));
 };
 
-/**
- * A bare list of tracks has no context of its own, so it travels as a
- * single-page anonymous one — which is how the native clients play a
- * selection too.
- */
+/** A bare list of tracks — liked songs have no context uri of their own. */
 const startPlayback = (uris: string[], index = 0) =>
-  send("play", {
-    context: {
-      uri: "",
-      url: "",
-      metadata: {},
-      pages: [{ tracks: uris.map((uri) => ({ uri })) }],
-    },
-    options: { skip_to: { track_index: index }, license: "premium" },
-    play_origin: { feature_identifier: "harmony", feature_version: "desktop" },
-  });
+  invoke("player_load_tracks", { uris, index });
 
 /**
  * Every one of these is called straight from a click handler, so a rejection
@@ -226,14 +203,13 @@ const withDevice = async (what: string, run: () => Promise<unknown>) => {
 };
 
 /**
- * `skip_to` pins the track the user clicked whatever shuffle is set to, so
- * the old dance of turning shuffle off around the call — three requests for
- * one click — is gone.
+ * The index pins the track the user clicked whatever shuffle is set to, so the
+ * old dance of turning shuffle off around the call — three requests for one
+ * click — is gone.
  */
 export const play = (uris: string[]) =>
   withDevice("play", () => startPlayback(uris));
 
-/** Same for a bare list of tracks — liked songs have no context uri. */
 export const playShuffled = (uris: string[]) =>
   withDevice("playShuffled", async () => {
     patchState({ shuffle: true });
@@ -254,12 +230,7 @@ export const shuffleContext = (uri: string) =>
   });
 
 /** Plays a whole playlist, album or artist by its uri. */
-const startContext = (uri: string) =>
-  send("play", {
-    context: { uri, url: `context://${uri}`, metadata: {} },
-    options: { license: "premium" },
-    play_origin: { feature_identifier: "harmony", feature_version: "desktop" },
-  });
+const startContext = (uri: string) => invoke("player_load_context", { uri });
 
 export const playContext = (uri: string) =>
   withDevice("playContext", () => startContext(uri));
@@ -538,186 +509,108 @@ onMount($queue, () => {
   });
 });
 
-const updateTrackColor = async (state: Spotify.PlaybackState) => {
-  const url = state.track_window.current_track.album.images[0]?.url ?? "";
+const updateTrackColor = async (url: string) => {
   if (url === colorSource) return;
 
   colorSource = url;
   $trackColor.set(await getAccentColorFromImage(url));
 };
 
-/**
- * The SDK plays inside a cross-origin iframe, so the system's Now Playing
- * entry belongs to that document — which is why it read "Spotify Embedded"
- * and offered seek keys. media_session.js runs inside it and relays the
- * ⏮/⏭ keys back here; play/pause the webview already handles itself.
- */
-let mediaKeysClaimed = false;
+/** librespot names the track by uri; everything else about it we fetch. */
+const trackCache = new Map<string, SpotifyApi.TrackObjectFull>();
 
-const claimMediaKeys = () => {
-  if (mediaKeysClaimed) return;
-  mediaKeysClaimed = true;
+const trackOf = async (uri: string) => {
+  const hit = trackCache.get(uri);
+  if (hit) return hit;
 
-  window.addEventListener("message", (event) => {
-    if (event.data?.yfitops !== "media-key") return;
+  const track = await fetchTrack(uri.split(":")[2] ?? "");
+  trackCache.set(uri, track);
 
-    if (event.data.key === "next") nextTrack();
-    else if (event.data.key === "previous") prevTrack();
-  });
+  return track;
 };
 
-/** Fills the system entry with the track that is actually playing. */
-const publishNowPlaying = () => {
-  const state = $playerState.get();
-  if (!state) return;
-
-  const track = state.track_window.current_track;
-
-  const message = {
-    yfitops: "now-playing",
-    title: track.name,
-    artist: track.artists.map((artist) => artist.name).join(", "),
-    album: track.album.name,
-    cover: track.album.images[0]?.url ?? "",
-  };
-
-  for (const frame of document.querySelectorAll("iframe")) {
-    frame.contentWindow?.postMessage(message, "*");
-  }
+type PlayerEvent = {
+  kind:
+    | "playing"
+    | "paused"
+    | "stopped"
+    | "track"
+    | "seeked"
+    | "position"
+    | "end";
+  uri?: string;
+  position_ms?: number;
 };
 
-/**
- * Spotify keeps the last playback server-side, so nothing has to be stored
- * locally: handing the session to this device without starting it brings the
- * track, its position and the queue back exactly where they stopped. Playback
- * running somewhere else is left alone — taking it over would yank the music
- * off the phone.
- */
-let restored = false;
+/** Position is ticked locally between events; each event resyncs it. */
+const retick = (paused: boolean) => {
+  if (tickTimer) clearInterval(tickTimer);
+  if (paused) return;
 
-const restoreLastSession = async (id: string) => {
-  // only the first `ready` of the session — a reconnect after sleep must not
-  // pull a paused session back off whatever device has it now
-  if (restored) return;
-  restored = true;
+  let lastTick = Date.now();
 
-  try {
-    const accessToken = await webSession.ensureToken();
-    const cluster = await getCluster(accessToken);
-    if (cluster.player_state?.is_playing) return;
-
-    await transfer({ accessToken, deviceId: id });
-  } catch (err) {
-    reportError("player restore", err);
-  }
+  tickTimer = setInterval(() => {
+    const now = Date.now();
+    $position.set($position.get() + (now - lastTick));
+    lastTick = now;
+  }, 500);
 };
 
-/**
- * `ready` is the only thing that ever sets the device id, so a drop has to be
- * answered or the next click waits forever. But answering it immediately and
- * for ever is how a rate-limited account turns one refusal into a storm: the
- * SDK registers, is turned away, drops, and asks again. Hence the backoff and
- * the ceiling — past it the player stays down until the app restarts, which is
- * the honest outcome when Spotify keeps saying no.
- */
-const RECONNECT_LIMIT = 5;
-const RECONNECT_BASE_MS = 2_000;
+const applyEvent = async (event: PlayerEvent) => {
+  if (event.kind === "end") return;
 
-let attempts = 0;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const previous = $playerState.get();
+  const uri = event.uri ?? previous?.track_window.current_track.uri ?? "";
+  if (!uri) return;
 
-const reconnect = (instance: Spotify.Player) => {
-  if (reconnectTimer) return;
+  const changed = uri !== previous?.track_window.current_track.uri;
+  const track = changed ? await trackOf(uri) : null;
+  const paused = event.kind === "paused" || event.kind === "stopped";
 
-  if (attempts >= RECONNECT_LIMIT) {
-    reportError(
-      "player",
-      new Error(`gave up reconnecting after ${RECONNECT_LIMIT} attempts`),
-    );
-    return;
-  }
+  const current = (track ??
+    previous?.track_window.current_track) as Spotify.Track;
 
-  const wait = RECONNECT_BASE_MS * 2 ** attempts;
-  attempts++;
+  const state = {
+    ...previous,
+    paused,
+    position: event.position_ms ?? previous?.position ?? 0,
+    duration: track?.duration_ms ?? previous?.duration ?? 0,
+    shuffle: previous?.shuffle ?? false,
+    repeat_mode: previous?.repeat_mode ?? 0,
+    track_window: { current_track: current },
+  } as unknown as Spotify.PlaybackState;
 
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    instance.connect().catch((err) => reportError("player reconnect", err));
-  }, wait);
+  $playerState.set(withPending(state));
+
+  if (event.position_ms !== undefined) $position.set(event.position_ms);
+  if (track) updateTrackColor(track.album.images[0]?.url ?? "");
+
+  retick(paused);
 };
 
-const addListeners = (player: Spotify.Player) => {
-  player.addListener("ready", (event) => {
-    attempts = 0;
-    announceDevice(event.device_id);
-    claimMediaKeys();
-    restoreLastSession(event.device_id);
-  });
+/** librespot starts as soon as anything observes the player state. */
+let starting = false;
 
-  // the device goes away on sleep or when another client takes over; without
-  // this the next click would reach for an id the server no longer knows
-  player.addListener("not_ready", () => {
-    registered = new Promise((resolve) => (announceDevice = resolve));
-    reconnect(player);
-  });
-
-  // the SDK's own dealer socket drops on sleep and network changes, and it
-  // reconnects on its own — but when that reconnect fails for good, these are
-  // the only trace of why. account_error is the common one: no Premium.
-  for (const event of [
-    "initialization_error",
-    "authentication_error",
-    "account_error",
-    "playback_error",
-  ] as const) {
-    player.addListener(event, ({ message }) => {
-      // the first three end playback for good — no Premium, a dead token, a
-      // player that never came up — and the user has to be told. A playback
-      // error is usually one track the CDN refused, and the SDK moves on
-      if (event === "playback_error")
-        console.error(`player ${event}:`, message);
-      else reportError(`player ${event}`, new Error(message));
-    });
-  }
-
-  // ponytail: position is ticked locally between SDK events, each event resyncs it
-  player.addListener("player_state_changed", (event) => {
-    $playerState.set(withPending(event));
-    $position.set(event.position);
-    updateTrackColor(event);
-    publishNowPlaying();
-
-    if (tickTimer) clearInterval(tickTimer);
-    if (event.paused) return;
-
-    let lastTick = Date.now();
-    tickTimer = setInterval(() => {
-      const now = Date.now();
-      $position.set($position.get() + (now - lastTick));
-      lastTick = now;
-    }, 500);
-  });
-};
-
-/** The Web Playback SDK connects as soon as the player state is observed. */
 onMount($playerState, () =>
   webSession.whenAuthorized(async () => {
-    if (player) return;
+    if (starting) return;
+    starting = true;
 
-    window.onSpotifyWebPlaybackSDKReady = async () => {
-      const instance = new window.Spotify.Player({
+    const stop = listen<PlayerEvent>("player-event", ({ payload }) =>
+      applyEvent(payload).catch((err) => reportError("player event", err)),
+    );
+
+    try {
+      const id = await invoke<string>("player_start", {
+        token: await webSession.ensureToken(),
         name: "Yfitops",
-        getOAuthToken: (cb) => webSession.ensureToken().then(cb),
-        volume: 1,
       });
 
-      // listeners first: `ready` fires right after connect, and attaching
-      // afterwards can miss it — leaving the device id empty for good
-      addListeners(instance);
-      await instance.connect();
-      player = instance;
-    };
-
-    await loadWebSdk();
+      announceDevice(id);
+    } catch (err) {
+      starting = false;
+      stop.then((off) => off());
+      throw err;
+    }
   }),
 );
