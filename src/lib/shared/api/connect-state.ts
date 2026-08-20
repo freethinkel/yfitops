@@ -37,12 +37,16 @@ const headers = (accessToken: string) => ({
   "app-platform": "WebPlayer",
 });
 
+/** Connect explains a refusal in the body; the status alone rarely narrows it. */
+const failed = async (what: string, response: Response) =>
+  new Error(`${what}: HTTP ${response.status} ${await response.text()}`.trim());
+
 export const getCluster = async (accessToken: string): Promise<Cluster> => {
   const response = await fetch(`${BASE}/cluster`, {
     headers: headers(accessToken),
   });
 
-  if (!response.ok) throw new Error(`Cluster: HTTP ${response.status}`);
+  if (!response.ok) throw await failed("Cluster", response);
 
   return response.json();
 };
@@ -71,7 +75,7 @@ export const command = async ({
     },
   );
 
-  if (!response.ok) throw new Error(`${endpoint}: HTTP ${response.status}`);
+  if (!response.ok) throw await failed(endpoint, response);
 };
 
 /**
@@ -94,7 +98,7 @@ export const transfer = async ({
     },
   );
 
-  if (!response.ok) throw new Error(`transfer: HTTP ${response.status}`);
+  if (!response.ok) throw await failed("transfer", response);
 };
 
 /**
