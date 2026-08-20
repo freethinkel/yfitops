@@ -135,6 +135,9 @@ const skipBy = (delta: number) => {
   $playerState.set({
     ...state,
     paused: false,
+    // we know the wait starts here; the player's own loading event never
+    // fires for a track it has already fetched
+    loading: true,
     position: 0,
     duration: target.durationMs,
     track_window: {
@@ -683,8 +686,8 @@ const applyEvent = async (event: PlayerEvent) => {
   const state = {
     ...previous,
     paused,
-    // the field the SDK used to report, so anything reading it still works:
-    // the track is fetched and decoded but no sound has started yet
+    // the field the SDK used to report: fetched and decoded, but no sound yet.
+    // Anything that reports a position means sound is out, so the wait is over
     loading: event.kind === "loading",
     position: event.position_ms ?? previous?.position ?? 0,
     duration: track?.duration_ms ?? previous?.duration ?? 0,
