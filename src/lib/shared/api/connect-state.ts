@@ -25,6 +25,10 @@ export type PlayerState = {
   prev_tracks?: QueueEntry[];
   track?: QueueEntry;
   is_playing?: boolean;
+  is_paused?: boolean;
+  /** Milliseconds, as strings — the gateway sends its numbers that way. */
+  position_as_of_timestamp?: string;
+  duration?: string;
 };
 
 export type Cluster = {

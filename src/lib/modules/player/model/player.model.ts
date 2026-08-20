@@ -732,6 +732,47 @@ let starting = false;
 /** Long enough that a dropped connection is not hammered while it recovers. */
 const RESTART_DELAY_MS = 2_000;
 
+/**
+ * Opens onto whatever the account is playing rather than an empty player.
+ * Connect keeps the current track server-side and decorates it, so this costs
+ * one read and no metadata lookups.
+ */
+const restoreState = async () => {
+  if ($playerState.get()) return;
+
+  const cluster = await getCluster(await webSession.ensureToken());
+  const state = cluster.player_state;
+  const track = state?.track;
+
+  if (!track?.uri) return;
+
+  const meta = track.metadata ?? {};
+  const position = Number(state?.position_as_of_timestamp ?? 0) || 0;
+
+  $playerState.set({
+    paused: !state?.is_playing || state?.is_paused === true,
+    loading: false,
+    position,
+    duration: Number(meta.duration ?? state?.duration ?? 0) || 0,
+    shuffle: false,
+    repeat_mode: 0,
+    track_window: {
+      current_track: asTrack({
+        uri: track.uri,
+        uid: track.uid ?? "",
+        name: meta.title ?? "",
+        artist: meta.artist_name ?? "",
+        image: meta.image_url ?? "",
+        durationMs: Number(meta.duration ?? 0) || 0,
+      }),
+      previous_tracks: [],
+      next_tracks: [],
+    },
+  } as unknown as Spotify.PlaybackState);
+
+  $position.set(position);
+};
+
 const start = async () => {
   const id = await invoke<string>("player_start", {
     token: await webSession.ensureToken(),
@@ -739,6 +780,9 @@ const start = async () => {
   });
 
   announceDevice(id);
+
+  // after the device exists, so a cluster read sees this session too
+  await restoreState().catch((err) => reportError("player restore", err));
 };
 
 const onMediaKey = (key: string) => {
