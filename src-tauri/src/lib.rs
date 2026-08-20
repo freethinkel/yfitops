@@ -139,6 +139,7 @@ pub fn run() {
             player::player_previous,
             player::player_seek,
             player::player_skip_to,
+            player::player_preload,
             player::player_set_shuffle,
             player::player_set_repeat,
             player::player_load_context,
