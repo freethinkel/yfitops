@@ -5,7 +5,6 @@ import { webSession } from "$lib/modules/auth/model";
 import {
   getCluster,
   setQueue,
-  skipTo,
   type QueueEntry,
 } from "$lib/shared/api/connect-state";
 import {
@@ -481,20 +480,14 @@ export const playFromQueue = async (track: QueueTrack) => {
 };
 
 const skipToQueued = async (track: QueueTrack) => {
-  const [accessToken, id] = await Promise.all([token(), device()]);
-  if (!accessToken) return;
-
   // skipping to a track drops everything queued ahead of it
   const queue = $queue.get() ?? [];
   const index = queue.indexOf(track);
   if (index >= 0) optimistic(queue.slice(index + 1));
 
-  await skipTo({
-    accessToken,
-    deviceId: id,
-    uri: track.uri,
-    uid: track.uid,
-  });
+  // straight to the player rather than asking Connect to skip for us: that
+  // request travels to the server and back to this very device
+  await invoke("player_skip_to", { uri: track.uri });
 
   scheduleSync();
 };

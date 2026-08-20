@@ -102,28 +102,6 @@ export const transfer = async ({
 };
 
 /**
- * Jumps straight to a position in the queue. Plain `skip_next` steps one track;
- * naming the track makes it skip to that one, dropping everything before it.
- */
-export const skipTo = ({
-  accessToken,
-  deviceId,
-  uri,
-  uid,
-}: {
-  accessToken: string;
-  deviceId: string;
-  uri: string;
-  uid: string;
-}) =>
-  command({
-    accessToken,
-    deviceId,
-    endpoint: "skip_next",
-    payload: { track: { uri, uid } },
-  });
-
-/**
  * Replaces the queue wholesale. `queue_revision` guards against overwriting a
  * change made elsewhere, so it has to come from a fresh cluster read.
  */

@@ -27,8 +27,20 @@ const AP_PORT: u16 = 443;
 const CLIENT_TOKEN_TTL: Duration = Duration::from_secs(1_209_600);
 const TOKEN_TTL: Duration = Duration::from_secs(3_000);
 
+/// What was last handed to Spirc. Jumping to a track means loading the same
+/// thing again and naming the track to start from — Spirc has no "skip to" of
+/// its own, and going through Connect for it takes a round trip.
+enum Loaded {
+    Tracks(Vec<String>),
+    Context(String),
+}
+
 #[derive(Default)]
-pub struct PlayerHandle(Mutex<Option<Spirc>>, Mutex<Option<Arc<Player>>>);
+pub struct PlayerHandle(
+    Mutex<Option<Spirc>>,
+    Mutex<Option<Arc<Player>>>,
+    Mutex<Option<Loaded>>,
+);
 
 #[derive(Serialize, Clone)]
 struct PlayerEventPayload {
@@ -260,12 +272,7 @@ pub fn player_previous(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn player_seek(app: AppHandle, position_ms: u32) -> Result<(), String> {
-    with_spirc(&app, |spirc| spirc.set_position_ms(position_ms))
-}
-
-#[tauri::command]
-pub fn player_set_volume(app: AppHandle, volume: u16) -> Result<(), String> {
-    with_spirc(&app, |spirc| spirc.set_volume(volume))
+    with_player(&app, |player| player.seek(position_ms))
 }
 
 #[tauri::command]
@@ -290,32 +297,71 @@ fn activated(spirc: &Spirc) -> Result<(), librespot_core::Error> {
     spirc.activate()
 }
 
+fn options_for(track: Option<PlayingTrack>) -> LoadRequestOptions {
+    LoadRequestOptions {
+        start_playing: true,
+        playing_track: track,
+        ..Default::default()
+    }
+}
+
+fn remember(app: &AppHandle, loaded: Loaded) {
+    *app.state::<PlayerHandle>().2.lock().unwrap() = Some(loaded);
+}
+
 /// Plays a playlist, album or artist by uri, optionally starting at a position.
 #[tauri::command]
 pub fn player_load_context(app: AppHandle, uri: String, index: Option<u32>) -> Result<(), String> {
-    let options = LoadRequestOptions {
-        start_playing: true,
-        playing_track: index.map(PlayingTrack::Index),
-        ..Default::default()
-    };
-
     with_spirc(&app, |spirc| {
         activated(spirc)?;
-        spirc.load(LoadRequest::from_context_uri(uri.clone(), options))
-    })
+        spirc.load(LoadRequest::from_context_uri(
+            uri.clone(),
+            options_for(index.map(PlayingTrack::Index)),
+        ))
+    })?;
+
+    remember(&app, Loaded::Context(uri));
+
+    Ok(())
 }
 
 /// Plays a bare list of tracks — liked songs have no context uri of their own.
 #[tauri::command]
 pub fn player_load_tracks(app: AppHandle, uris: Vec<String>, index: Option<u32>) -> Result<(), String> {
-    let options = LoadRequestOptions {
-        start_playing: true,
-        playing_track: index.map(PlayingTrack::Index),
-        ..Default::default()
+    with_spirc(&app, |spirc| {
+        activated(spirc)?;
+        spirc.load(LoadRequest::from_tracks(
+            uris.clone(),
+            options_for(index.map(PlayingTrack::Index)),
+        ))
+    })?;
+
+    remember(&app, Loaded::Tracks(uris));
+
+    Ok(())
+}
+
+/// Jumps to a track already in the queue. Spirc has no command for it, so what
+/// was loaded is loaded again with that track named as the starting point —
+/// which is instant, unlike asking Connect to skip for us.
+#[tauri::command]
+pub fn player_skip_to(app: AppHandle, uri: String) -> Result<(), String> {
+    let handle = app.state::<PlayerHandle>();
+    let guard = handle.2.lock().unwrap();
+
+    let request = match guard.as_ref().ok_or("nothing is loaded")? {
+        Loaded::Tracks(uris) => LoadRequest::from_tracks(
+            uris.clone(),
+            options_for(Some(PlayingTrack::Uri(uri))),
+        ),
+        Loaded::Context(context) => LoadRequest::from_context_uri(
+            context.clone(),
+            options_for(Some(PlayingTrack::Uri(uri))),
+        ),
     };
 
     with_spirc(&app, |spirc| {
         activated(spirc)?;
-        spirc.load(LoadRequest::from_tracks(uris.clone(), options))
+        spirc.load(request)
     })
 }
