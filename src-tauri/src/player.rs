@@ -251,14 +251,20 @@ fn with_player(
     Ok(())
 }
 
+/// The player hears it first, so the sound reacts at once; Spirc is told after
+/// so its own idea of the state keeps up. Without the second call it stays
+/// convinced playback is paused, and the next track it loads is told not to
+/// start playing.
 #[tauri::command]
 pub fn player_play(app: AppHandle) -> Result<(), String> {
-    with_player(&app, |player| player.play())
+    with_player(&app, |player| player.play())?;
+    with_spirc(&app, |spirc| spirc.play())
 }
 
 #[tauri::command]
 pub fn player_pause(app: AppHandle) -> Result<(), String> {
-    with_player(&app, |player| player.pause())
+    with_player(&app, |player| player.pause())?;
+    with_spirc(&app, |spirc| spirc.pause())
 }
 
 #[tauri::command]
