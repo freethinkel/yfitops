@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
+mod cookies;
 #[cfg(target_os = "macos")]
 mod notification;
 #[cfg(target_os = "macos")]
@@ -125,6 +126,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             create_auth_window,
+            cookies::spotify_cookie,
             hide_window_buttons,
             toggle_devtools
         ])
