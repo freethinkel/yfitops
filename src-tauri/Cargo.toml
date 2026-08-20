@@ -13,7 +13,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+# devtools: without it the console is compiled out of release builds, and
+# the menu item below would have nothing to open
+tauri = { version = "2", features = ["macos-private-api", "devtools"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-http = "2.5.9"

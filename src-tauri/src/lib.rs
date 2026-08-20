@@ -90,6 +90,18 @@ fn hide_window_buttons(_app: AppHandle, _label: String) -> Result<(), String> {
     Ok(())
 }
 
+/// The console is reachable in release too — through the Help menu and the
+/// right-click menu — so this has to work outside debug builds, which is what
+/// the `devtools` feature on tauri buys.
+#[tauri::command]
+fn toggle_devtools(window: tauri::WebviewWindow) {
+    if window.is_devtools_open() {
+        window.close_devtools();
+    } else {
+        window.open_devtools();
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
@@ -113,7 +125,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             create_auth_window,
-            hide_window_buttons
+            hide_window_buttons,
+            toggle_devtools
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

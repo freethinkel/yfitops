@@ -22,6 +22,8 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-always-on-top",
     "core:window:allow-set-visible-on-all-workspaces",
+    "core:menu:allow-set-as-app-menu",
+    "core:menu:allow-popup",
     {
       "identifier": "http:default",
       "allow": [

@@ -1,13 +1,14 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { Sidebar } from "$lib/modules/app/components/sidebar";
-  import { appModel } from "$lib/modules/app/model";
+  import { appModel, devtoolsModel } from "$lib/modules/app/model";
   import { authModel } from "$lib/modules/auth/model";
   import { NowPlaying } from "$lib/modules/player/components/now-playing";
   import { Friends } from "$lib/modules/friends/components/friends";
   import { Queue } from "$lib/modules/player/components/queue";
   import { Player } from "$lib/modules/player/components/player";
   import { playerModel } from "$lib/modules/player/model";
+  import { onMount } from "svelte";
   import { Resizable } from "$lib/shared/components/resizable";
   import { Toast } from "$lib/shared/components/toast";
   import type { LayoutProps } from "./$types";
@@ -24,6 +25,12 @@
 
   $effect(() => {
     if (!$isAuthorized && !$isPending) goto("/", { replaceState: true });
+  });
+
+  // here rather than in the root layout: that one also serves the mini
+  // player's window, and the app menu belongs to the main one only
+  onMount(() => {
+    devtoolsModel.installMenu();
   });
 
   const SEEK_STEP_MS = 5000;
