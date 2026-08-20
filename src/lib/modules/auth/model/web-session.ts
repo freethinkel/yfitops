@@ -187,8 +187,13 @@ export const logout = () =>
     await inWindow(LOGOUT_URL, (url) => !url.includes("/logout"));
   });
 
+// through `withPending` on purpose: the app layout sends anyone who is neither
+// authorised nor pending back to the login page, and restoring a saved session
+// takes a moment — without this the window flashes the form on every launch
 onMount($isAuthorized, () => {
-  ensureToken();
+  withPending(async () => {
+    await ensureToken();
+  });
 });
 
 /** The same contract `createSession` offers, so dependent stores stay as they are. */
