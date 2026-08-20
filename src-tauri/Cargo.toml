@@ -18,7 +18,10 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["macos-private-api", "devtools"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-http = "2.5.9"
+# unsafe-headers: without it the plugin drops `cookie`, `referer` and `origin`
+# as forbidden by the fetch spec — and the whole session rests on sending
+# Spotify's own cookie and posing as its web player
+tauri-plugin-http = { version = "2.5.9", features = ["unsafe-headers"] }
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

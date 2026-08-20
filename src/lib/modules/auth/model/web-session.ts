@@ -5,6 +5,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { fetch } from "@tauri-apps/plugin-http";
 import { totp } from "$lib/shared/api/totp";
 import { refreshBundleMeta } from "$lib/shared/api/pathfinder";
+import { reportError } from "$lib/shared/helpers/errors";
 
 /**
  * Exactly the session the web player runs on: the `sp_dc` cookie in exchange
@@ -64,6 +65,13 @@ const request = async (
 
   if (!data?.accessToken) {
     throw new Error(`Токен не выдан: ${data?.message ?? response.status}`);
+  }
+
+  // The endpoint answers a visitor it does not recognise with a working but
+  // anonymous token: public data goes through, anything under /me comes back
+  // as "User is not authorized" much later and far away from here.
+  if (data.isAnonymous) {
+    throw new Error("Cookie входа не признана — выдан анонимный токен");
   }
 
   return {
@@ -208,7 +216,9 @@ export const whenAuthorized = (load: () => void | Promise<void>) => {
       await load();
     } catch (err) {
       loaded = false;
-      $error.set(err instanceof Error ? err.message : String(err));
+      // `$error` only ever surfaces on the login screen, so a store that fails
+      // to load once looked like a page that simply had nothing in it
+      reportError("load", err);
     }
   });
 };
