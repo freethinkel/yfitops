@@ -35,6 +35,7 @@ env_logger = "0.11.11"
 
 [patch.crates-io]
 librespot-core = { path = "vendor/librespot-core" }
+librespot-playback = { path = "vendor/librespot-playback" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25.0"
