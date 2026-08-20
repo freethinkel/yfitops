@@ -148,9 +148,14 @@ const skipBy = (delta: number) => {
   skipTimer = setTimeout(() => {
     skipTimer = null;
 
-    invoke("player_skip_to", { uri: expected }).catch((err) =>
-      reportError("player skip", err),
-    );
+    invoke("player_skip_to", { uri: expected })
+      .then(() => {
+        // the jump makes Spirc rebuild its queue, so the local one has to be
+        // read back — otherwise the two drift apart and the next press picks a
+        // track the player is no longer anywhere near
+        scheduleSync();
+      })
+      .catch((err) => reportError("player skip", err));
   }, SKIP_DEBOUNCE_MS);
 };
 
@@ -577,6 +582,11 @@ onMount($queue, () => {
     if (trackId === current) return;
 
     current = trackId;
+
+    // a switch of our own is still settling: it moved the queue by hand and
+    // re-reads it once the player confirms, so reading it now would only be a
+    // request per press
+    if (expected) return;
 
     // the track that just started is usually the head of the queue: drop it
     // right away instead of waiting for the round trip
