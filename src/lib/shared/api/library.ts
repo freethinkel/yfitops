@@ -1,4 +1,5 @@
 import { pathfinderQuery } from "./pathfinder";
+import { toTrack, type RawTrack } from "./catalog";
 import { webSession } from "$lib/modules/auth/model";
 
 const PROFILE_HASH =
@@ -101,19 +102,10 @@ export const fetchPlaylists = async () => {
   return playlists;
 };
 
+/** The track sits one level down, and only the wrapper carries its uri. */
 type RawLikedEntry = {
   addedAt?: { isoString?: string };
-  track?: {
-    uri?: string;
-    name?: string;
-    trackDuration?: { totalMilliseconds?: number };
-    artists?: { items?: { uri?: string; profile?: { name?: string } }[] };
-    albumOfTrack?: {
-      uri?: string;
-      name?: string;
-      coverArt?: { sources?: { url?: string; width?: number }[] };
-    };
-  };
+  track?: { _uri?: string; data?: RawTrack };
 };
 
 export const fetchLikedTracks = async () => {
@@ -127,34 +119,14 @@ export const fetchLikedTracks = async () => {
     const items = data.me?.library?.tracks?.items ?? [];
 
     for (const entry of items) {
-      const track = entry.track;
-      if (!track?.uri || !track.name) continue;
+      const raw = entry.track?.data;
+      const uri = entry.track?._uri;
+
+      if (!raw?.name || !uri) continue;
 
       collected.push({
         added_at: entry.addedAt?.isoString ?? "",
-        track: {
-          id: idOf(track.uri),
-          uri: track.uri,
-          name: track.name,
-          duration_ms: track.trackDuration?.totalMilliseconds ?? 0,
-          artists: (track.artists?.items ?? []).map((artist) => ({
-            id: idOf(artist.uri),
-            uri: artist.uri ?? "",
-            name: artist.profile?.name ?? "",
-          })),
-          album: {
-            id: idOf(track.albumOfTrack?.uri),
-            uri: track.albumOfTrack?.uri ?? "",
-            name: track.albumOfTrack?.name ?? "",
-            images: (track.albumOfTrack?.coverArt?.sources ?? [])
-              .map((source) => ({
-                url: source.url ?? "",
-                width: source.width ?? null,
-                height: null,
-              }))
-              .sort((a, b) => (b.width ?? 0) - (a.width ?? 0)),
-          },
-        },
+        track: toTrack({ ...raw, uri }),
       } as unknown as SpotifyApi.SavedTrackObject);
     }
 

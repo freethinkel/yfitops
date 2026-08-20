@@ -57,7 +57,7 @@ const imagesOf = (sources: Source[] = []) =>
     }))
     .sort((a, b) => (b.width ?? 0) - (a.width ?? 0));
 
-type RawTrack = {
+export type RawTrack = {
   uri?: string;
   name?: string;
   trackDuration?: { totalMilliseconds?: number };
@@ -70,7 +70,7 @@ type RawTrack = {
   };
 };
 
-const toTrack = (raw: RawTrack) =>
+export const toTrack = (raw: RawTrack) =>
   ({
     id: idOf(raw.uri),
     uri: raw.uri ?? "",
