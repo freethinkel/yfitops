@@ -24,6 +24,16 @@ serde_json = "1"
 tauri-plugin-http = { version = "2.5.9", features = ["unsafe-headers"] }
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 
+# playback of our own: no Web Playback SDK, no Widevine, no api.spotify.com.
+# librespot-core is a fork — see vendor/librespot-core/FORK.md
+librespot-core = "0.8"
+librespot-playback = "0.8"
+librespot-connect = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+
+[patch.crates-io]
+librespot-core = { path = "vendor/librespot-core" }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25.0"
 objc = { version = "0.2.7", features = ["exception"] }
