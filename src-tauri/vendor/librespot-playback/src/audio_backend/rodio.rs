@@ -234,11 +234,12 @@ impl Sink for RodioSink {
         Ok(())
     }
 
-    // yfitops: pause at once. Upstream waits for the queued audio to finish
-    // first, and since the queue holds about half a second, every pause was
-    // that late. Pausing keeps the queue, so playback resumes where it stopped.
+    // yfitops: stop at once and drop what is queued. Upstream waited for the
+    // queue to finish playing first, so every pause and every switch arrived
+    // that late — and whatever was left over went on playing over the next
+    // track. `clear` both empties the queue and pauses the sink.
     fn stop(&mut self) -> SinkResult<()> {
-        self.rodio_sink.pause();
+        self.rodio_sink.clear();
         Ok(())
     }
 
@@ -257,7 +258,11 @@ impl Sink for RodioSink {
         // Chunk sizes seem to be about 256 to 3000 ish items long.
         // Assuming they're on average 1628 then a half second buffer is:
         // 44100 elements --> about 27 chunks
-        while self.rodio_sink.len() > 26 {
+        //
+        // yfitops: a fifth of that. Whatever sits here is what a pause loses
+        // and what a switch has to throw away, and half a second of either is
+        // audible; ~100 ms is not, and still covers the gaps between writes.
+        while self.rodio_sink.len() > 5 {
             // sleep and wait for rodio to drain a bit
             thread::sleep(Duration::from_millis(10));
         }

@@ -179,7 +179,20 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
     .await
     .map_err(|err| err.to_string())?;
 
-    tauri::async_runtime::spawn(task);
+    // the access point drops the connection sooner or later, and Spirc ends
+    // with it — every command after that hits a closed channel, so the
+    // frontend is told to start a fresh session
+    let gone = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        task.await;
+
+        let handle = gone.state::<PlayerHandle>();
+        *handle.0.lock().unwrap() = None;
+        *handle.1.lock().unwrap() = None;
+
+        let _ = gone.emit("player-gone", ());
+    });
 
     let handle = app.state::<PlayerHandle>();
     *handle.0.lock().unwrap() = Some(spirc);
@@ -264,6 +277,14 @@ pub fn player_play(app: AppHandle) -> Result<(), String> {
 pub fn player_pause(app: AppHandle) -> Result<(), String> {
     with_player(&app, |player| player.pause())?;
     with_spirc(&app, |spirc| spirc.pause())
+}
+
+/// Silences the current track at once, for switching: the old one would
+/// otherwise keep playing while the new one loads. Deliberately not told to
+/// Spirc — it would take this for a pause and load the next track stopped.
+#[tauri::command]
+pub fn player_halt(app: AppHandle) -> Result<(), String> {
+    with_player(&app, |player| player.stop())
 }
 
 #[tauri::command]

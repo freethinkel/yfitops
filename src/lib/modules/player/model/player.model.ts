@@ -128,6 +128,10 @@ const skipBy = (delta: number) => {
 
   expected = target.uri;
 
+  // the track being left behind would otherwise keep playing until the next
+  // one has loaded, which is most of a second of the wrong music
+  invoke("player_halt").catch(() => {});
+
   $playerState.set({
     ...state,
     paused: false,
@@ -721,6 +725,18 @@ const publishNowPlaying = (state: Spotify.PlaybackState) => {
 /** librespot starts as soon as anything observes the player state. */
 let starting = false;
 
+/** Long enough that a dropped connection is not hammered while it recovers. */
+const RESTART_DELAY_MS = 2_000;
+
+const start = async () => {
+  const id = await invoke<string>("player_start", {
+    token: await webSession.ensureToken(),
+    name: "Yfitops",
+  });
+
+  announceDevice(id);
+};
+
 const onMediaKey = (key: string) => {
   const paused = $playerState.get()?.paused;
 
@@ -748,15 +764,20 @@ onMount($playerState, () => {
       // the keys land in Rust and come back here, so a press runs exactly what
       // a click on the same button runs
       listen<string>("media-key", ({ payload }) => onMediaKey(payload)),
+      // the access point drops the session eventually; without a fresh one
+      // every button stays dead until the app is restarted
+      listen("player-gone", () => {
+        registered = new Promise((resolve) => (announceDevice = resolve));
+
+        setTimeout(
+          () => start().catch((err) => reportError("player restart", err)),
+          RESTART_DELAY_MS,
+        );
+      }),
     );
 
     try {
-      const id = await invoke<string>("player_start", {
-        token: await webSession.ensureToken(),
-        name: "Yfitops",
-      });
-
-      announceDevice(id);
+      await start();
     } catch (err) {
       starting = false;
       throw err;
