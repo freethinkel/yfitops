@@ -11,6 +11,7 @@ import {
   toggleLike,
 } from "$lib/modules/playlist/model/playlist.model";
 import { spotifyApi } from "$lib/shared/api/spotify";
+import { httpError } from "$lib/shared/api/http-error";
 import { getAccentColorFromImage } from "$lib/shared/helpers/color";
 import { reportError } from "$lib/shared/helpers/errors";
 import { loadWebSdk } from "./web-sdk";
@@ -68,7 +69,7 @@ const playerCommand = async (path: string, params: Record<string, string>) => {
     },
   );
 
-  if (!response.ok) throw new Error(`player ${path}: HTTP ${response.status}`);
+  if (!response.ok) throw httpError(`player ${path}`, response);
 };
 
 const setShuffle = (state: boolean, device: string) =>
@@ -620,8 +621,43 @@ const restoreLastSession = async (id: string) => {
   }
 };
 
+/**
+ * `ready` is the only thing that ever sets the device id, so a drop has to be
+ * answered or the next click waits forever. But answering it immediately and
+ * for ever is how a rate-limited account turns one refusal into a storm: the
+ * SDK registers, is turned away, drops, and asks again. Hence the backoff and
+ * the ceiling — past it the player stays down until the app restarts, which is
+ * the honest outcome when Spotify keeps saying no.
+ */
+const RECONNECT_LIMIT = 5;
+const RECONNECT_BASE_MS = 2_000;
+
+let attempts = 0;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+const reconnect = (instance: Spotify.Player) => {
+  if (reconnectTimer) return;
+
+  if (attempts >= RECONNECT_LIMIT) {
+    reportError(
+      "player",
+      new Error(`gave up reconnecting after ${RECONNECT_LIMIT} attempts`),
+    );
+    return;
+  }
+
+  const wait = RECONNECT_BASE_MS * 2 ** attempts;
+  attempts++;
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    instance.connect().catch((err) => reportError("player reconnect", err));
+  }, wait);
+};
+
 const addListeners = (player: Spotify.Player) => {
   player.addListener("ready", (event) => {
+    attempts = 0;
     announceDevice(event.device_id);
     claimMediaKeys();
     restoreLastSession(event.device_id);
@@ -631,11 +667,7 @@ const addListeners = (player: Spotify.Player) => {
   // this the next click would reach for an id the server no longer knows
   player.addListener("not_ready", () => {
     registered = new Promise((resolve) => (announceDevice = resolve));
-
-    // nothing else asks the SDK to come back, and `ready` is the only thing
-    // that ever sets the id again — without this a dropped device stays gone
-    // and every later click waits on a promise no one will resolve
-    player.connect().catch((err) => reportError("player reconnect", err));
+    reconnect(player);
   });
 
   // the SDK's own dealer socket drops on sleep and network changes, and it

@@ -8,8 +8,9 @@ import {
 import { authModel, internalSession } from "$lib/modules/auth/model";
 import { userModel } from "$lib/modules/user/model";
 import { spotifyApi } from "$lib/shared/api/spotify";
+import { httpError } from "$lib/shared/api/http-error";
 import { fetchInternalPlaylist } from "./internal-playlist";
-import { forget, persisted } from "$lib/shared/helpers/persisted";
+import { forget, persisted, read, write } from "$lib/shared/helpers/persisted";
 import { reportError } from "$lib/shared/helpers/errors";
 
 export const $likedSongs = atom<SpotifyApi.SavedTrackObject[] | null>(null);
@@ -22,11 +23,34 @@ export const $playlists = atom<SpotifyApi.PlaylistObjectSimplified[] | null>(
 let likedLoaded = false;
 let playlistsLoaded = false;
 
+/**
+ * The saved list is paged fifty at a time, so a library of any size is a burst
+ * of requests — and Spotify measures its rate limit over a rolling 30 second
+ * window. Doing that on every launch was most of the way to a 429 on its own.
+ * Liking a track updates the cached copy as it goes, so the only thing this
+ * delays is a change made on another device.
+ */
+const LIKED = "liked";
+const LIKED_FETCHED_AT = "liked-fetched-at";
+const LIKED_MAX_AGE = 30 * 60 * 1000;
+
 onMount($likedSongs, () => {
-  const unbind = persisted($likedSongs, "liked");
+  const unbind = persisted($likedSongs, LIKED);
 
   const stop = authModel.whenAuthorized(async () => {
     if (likedLoaded) return;
+
+    // read from the cache, not the store: the store is restored asynchronously
+    // too, and which of the two lands first is not ours to say
+    const [at, cached] = await Promise.all([
+      read<number>(LIKED_FETCHED_AT),
+      read<SpotifyApi.SavedTrackObject[]>(LIKED),
+    ]);
+
+    if (Date.now() - (at ?? 0) < LIKED_MAX_AGE && cached?.length) {
+      likedLoaded = true;
+      return;
+    }
 
     const load = async (
       tracks: SpotifyApi.SavedTrackObject[],
@@ -43,6 +67,7 @@ onMount($likedSongs, () => {
 
     $likedSongs.set(await load([]));
     likedLoaded = true;
+    write(LIKED_FETCHED_AT, Date.now());
   });
 
   return () => {
@@ -165,7 +190,7 @@ const saveToLibrary = async (
     },
   );
 
-  if (!response.ok) throw new Error(`saved ${kind}: HTTP ${response.status}`);
+  if (!response.ok) throw httpError(`saved ${kind}`, response);
 };
 
 /** Optimistic: the star flips first, the API call follows. */
