@@ -1,6 +1,6 @@
 import { atom, computed, onMount } from "nanostores";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { webSession } from "$lib/modules/auth/model";
 import {
   getCluster,
@@ -634,26 +634,34 @@ const publishNowPlaying = (state: Spotify.PlaybackState) => {
 /** librespot starts as soon as anything observes the player state. */
 let starting = false;
 
-onMount($playerState, () =>
-  webSession.whenAuthorized(async () => {
+const onMediaKey = (key: string) => {
+  const paused = $playerState.get()?.paused;
+
+  if (key === "next") nextTrack();
+  else if (key === "previous") prevTrack();
+  else if (key === "toggle") togglePlaypause();
+  else if (key === "play" && paused) togglePlaypause();
+  else if (key === "pause" && !paused) togglePlaypause();
+};
+
+onMount($playerState, () => {
+  // both listeners have to come off with the store, or a remount leaves the
+  // old ones in place — every event then arrives twice and one press skips
+  // two tracks
+  const listeners: Promise<UnlistenFn>[] = [];
+
+  const stop = webSession.whenAuthorized(async () => {
     if (starting) return;
     starting = true;
 
-    const stop = listen<PlayerEvent>("player-event", ({ payload }) =>
-      applyEvent(payload).catch((err) => reportError("player event", err)),
+    listeners.push(
+      listen<PlayerEvent>("player-event", ({ payload }) =>
+        applyEvent(payload).catch((err) => reportError("player event", err)),
+      ),
+      // the keys land in Rust and come back here, so a press runs exactly what
+      // a click on the same button runs
+      listen<string>("media-key", ({ payload }) => onMediaKey(payload)),
     );
-
-    // the keys land in Rust and come back here, so a press runs exactly what a
-    // click on the same button runs
-    listen<string>("media-key", ({ payload }) => {
-      if (payload === "next") nextTrack();
-      else if (payload === "previous") prevTrack();
-      else if (payload === "play" && $playerState.get()?.paused)
-        togglePlaypause();
-      else if (payload === "pause" && !$playerState.get()?.paused)
-        togglePlaypause();
-      else if (payload === "toggle") togglePlaypause();
-    });
 
     try {
       const id = await invoke<string>("player_start", {
@@ -664,8 +672,14 @@ onMount($playerState, () =>
       announceDevice(id);
     } catch (err) {
       starting = false;
-      stop.then((off) => off());
       throw err;
     }
-  }),
-);
+  });
+
+  return () => {
+    listeners.forEach((pending) => pending.then((off) => off()));
+    listeners.length = 0;
+    starting = false;
+    stop();
+  };
+});
