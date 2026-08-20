@@ -12,6 +12,7 @@
     "tauri": "tauri",
     "lint": "oxlint src",
     "check:i18n": "node scripts/check-translations.mjs",
+    "probe": "node scripts/probe.mjs",
     "format": "oxfmt src"
   },
   "license": "MIT",
