@@ -42,7 +42,6 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::SAMPLES_PER_SECOND;
 
-const PRELOAD_NEXT_TRACK_BEFORE_END_DURATION_MS: u32 = 30000;
 pub const DB_VOLTAGE_RATIO: f64 = 20.0;
 pub const PCM_AT_0DBFS: f64 = 1.0;
 
@@ -1566,8 +1565,6 @@ impl Future for PlayerInternal {
             if let PlayerState::Playing {
                 ref track_id,
                 play_request_id,
-                duration_ms,
-                stream_position_ms,
                 ref mut stream_loader_controller,
                 ref mut suggested_to_preload_next_track,
                 ..
@@ -1575,8 +1572,6 @@ impl Future for PlayerInternal {
             | PlayerState::Paused {
                 ref track_id,
                 play_request_id,
-                duration_ms,
-                stream_position_ms,
                 ref mut stream_loader_controller,
                 ref mut suggested_to_preload_next_track,
                 ..
@@ -1584,9 +1579,12 @@ impl Future for PlayerInternal {
             {
                 let track_id = track_id.clone();
 
+                // yfitops: upstream waits until the track is nearly over, which
+                // never helps anyone skipping in the middle — and skipping is
+                // where the wait is felt. The remaining condition is the one
+                // that matters: this track is already fetched, so the network
+                // is free to get the next one.
                 if (!*suggested_to_preload_next_track)
-                    && ((duration_ms as i64 - stream_position_ms as i64)
-                        < PRELOAD_NEXT_TRACK_BEFORE_END_DURATION_MS as i64)
                     && stream_loader_controller.range_to_end_available()
                 {
                     *suggested_to_preload_next_track = true;
