@@ -240,6 +240,14 @@ pub fn player_set_repeat(app: AppHandle, mode: String) -> Result<(), String> {
     })
 }
 
+/// A registered device stays passive until something selects it, and Spirc
+/// drops every load that arrives before that. Playing from our own UI is that
+/// selection — but only then, so launching the app does not snatch playback
+/// away from a phone.
+fn activated(spirc: &Spirc) -> Result<(), librespot_core::Error> {
+    spirc.activate()
+}
+
 /// Plays a playlist, album or artist by uri, optionally starting at a position.
 #[tauri::command]
 pub fn player_load_context(app: AppHandle, uri: String, index: Option<u32>) -> Result<(), String> {
@@ -250,6 +258,7 @@ pub fn player_load_context(app: AppHandle, uri: String, index: Option<u32>) -> R
     };
 
     with_spirc(&app, |spirc| {
+        activated(spirc)?;
         spirc.load(LoadRequest::from_context_uri(uri.clone(), options))
     })
 }
@@ -264,6 +273,7 @@ pub fn player_load_tracks(app: AppHandle, uris: Vec<String>, index: Option<u32>)
     };
 
     with_spirc(&app, |spirc| {
+        activated(spirc)?;
         spirc.load(LoadRequest::from_tracks(uris.clone(), options))
     })
 }
