@@ -1,5 +1,8 @@
 use std::{
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, SystemTime},
 };
 
@@ -40,6 +43,10 @@ pub struct PlayerHandle(
     Mutex<Option<Spirc>>,
     Mutex<Option<Arc<Player>>>,
     Mutex<Option<Loaded>>,
+    /// Bumped once per session. A session shut down to make room for the next
+    /// one finishes its task afterwards, and without this it would clear the
+    /// handles of the session that replaced it.
+    AtomicU64,
 );
 
 #[derive(Serialize, Clone)]
@@ -103,9 +110,15 @@ async fn fetch_client_token(device_id: &str) -> Result<String, String> {
 /// the access token is renewed.
 #[tauri::command]
 pub async fn player_start(app: AppHandle, token: String, name: String) -> Result<String, String> {
-    if let Some(spirc) = app.state::<PlayerHandle>().0.lock().unwrap().take() {
-        let _ = spirc.shutdown();
-    }
+    let generation = {
+        let handle = app.state::<PlayerHandle>();
+
+        if let Some(spirc) = handle.0.lock().unwrap().take() {
+            let _ = spirc.shutdown();
+        }
+
+        handle.3.fetch_add(1, Ordering::Relaxed) + 1
+    };
 
     let mut config = SessionConfig::default();
     config.client_id = CLIENT_ID.to_string();
@@ -155,6 +168,13 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
 
     tauri::async_runtime::spawn(async move {
         while let Some(event) = events.recv().await {
+            // shutting a session down stops its player, and the stop is
+            // reported like any other — arriving after the session that
+            // replaced it, it would speak for a track nobody is on any more
+            if emitter.state::<PlayerHandle>().3.load(Ordering::Relaxed) != generation {
+                break;
+            }
+
             if let Some(payload) = to_payload(&event) {
                 let _ = emitter.emit("player-event", payload);
             }
@@ -188,6 +208,10 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
         task.await;
 
         let handle = gone.state::<PlayerHandle>();
+        if handle.3.load(Ordering::Relaxed) != generation {
+            return;
+        }
+
         *handle.0.lock().unwrap() = None;
         *handle.1.lock().unwrap() = None;
 
@@ -246,7 +270,7 @@ fn to_payload(event: &librespot_playback::player::PlayerEvent) -> Option<PlayerE
 fn with_spirc<T>(app: &AppHandle, run: impl FnOnce(&Spirc) -> Result<T, librespot_core::Error>) -> Result<T, String> {
     let handle = app.state::<PlayerHandle>();
     let guard = handle.0.lock().unwrap();
-    let spirc = guard.as_ref().ok_or("player is not running")?;
+    let spirc = guard.as_ref().ok_or("spirc is not running")?;
 
     run(spirc).map_err(|err| err.to_string())
 }
@@ -327,10 +351,11 @@ fn activated(spirc: &Spirc) -> Result<(), librespot_core::Error> {
     spirc.activate()
 }
 
-fn options_for(track: Option<PlayingTrack>) -> LoadRequestOptions {
+fn options_for(track: Option<PlayingTrack>, seek_to: u32) -> LoadRequestOptions {
     LoadRequestOptions {
         start_playing: true,
         playing_track: track,
+        seek_to,
         ..Default::default()
     }
 }
@@ -346,7 +371,7 @@ pub fn player_load_context(app: AppHandle, uri: String, index: Option<u32>) -> R
         activated(spirc)?;
         spirc.load(LoadRequest::from_context_uri(
             uri.clone(),
-            options_for(index.map(PlayingTrack::Index)),
+            options_for(index.map(PlayingTrack::Index), 0),
         ))
     })?;
 
@@ -357,12 +382,17 @@ pub fn player_load_context(app: AppHandle, uri: String, index: Option<u32>) -> R
 
 /// Plays a bare list of tracks — liked songs have no context uri of their own.
 #[tauri::command]
-pub fn player_load_tracks(app: AppHandle, uris: Vec<String>, index: Option<u32>) -> Result<(), String> {
+pub fn player_load_tracks(
+    app: AppHandle,
+    uris: Vec<String>,
+    index: Option<u32>,
+    seek_to: Option<u32>,
+) -> Result<(), String> {
     with_spirc(&app, |spirc| {
         activated(spirc)?;
         spirc.load(LoadRequest::from_tracks(
             uris.clone(),
-            options_for(index.map(PlayingTrack::Index)),
+            options_for(index.map(PlayingTrack::Index), seek_to.unwrap_or(0)),
         ))
     })?;
 
@@ -382,11 +412,11 @@ pub fn player_skip_to(app: AppHandle, uri: String) -> Result<(), String> {
     let request = match guard.as_ref().ok_or("nothing is loaded")? {
         Loaded::Tracks(uris) => LoadRequest::from_tracks(
             uris.clone(),
-            options_for(Some(PlayingTrack::Uri(uri))),
+            options_for(Some(PlayingTrack::Uri(uri)), 0),
         ),
         Loaded::Context(context) => LoadRequest::from_context_uri(
             context.clone(),
-            options_for(Some(PlayingTrack::Uri(uri))),
+            options_for(Some(PlayingTrack::Uri(uri)), 0),
         ),
     };
 

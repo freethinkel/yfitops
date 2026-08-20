@@ -56,6 +56,26 @@ const setRepeat = (mode: "off" | "context" | "track") =>
   invoke("player_set_repeat", { mode });
 
 /**
+ * The state we opened onto belongs to Connect, not to our player — it holds no
+ * track, and telling it to play is telling it to play nothing. Claiming the
+ * session is what hands it the track, and Spirc only starts once it has one.
+ */
+let restored: { uris: string[]; position: number } | null = null;
+
+const claimPlayback = async (pending: NonNullable<typeof restored>) => {
+  restored = null;
+
+  // the same call a click in a playlist makes — Spirc starts on its own, so
+  // there is no play to send after it, and the position goes in with the load
+  // rather than as a seek afterwards, which would be heard as a false start
+  await invoke("player_load_tracks", {
+    uris: pending.uris,
+    index: 0,
+    seekTo: Math.round(pending.position),
+  });
+};
+
+/**
  * Which of the two to call is decided here rather than in Spirc: its task
  * queues commands behind its own network traffic, and the delay is audible.
  * The state flips optimistically for the same reason.
@@ -68,6 +88,12 @@ export const togglePlaypause = () => {
 
   patchState({ paused });
   retick(paused);
+
+  if (!paused && restored) {
+    return claimPlayback(restored).catch((err) =>
+      reportError("player claim", err),
+    );
+  }
 
   return invoke(paused ? "player_pause" : "player_play").catch((err) =>
     reportError("player play/pause", err),
@@ -704,6 +730,8 @@ const applyEvent = async (event: PlayerEvent) => {
 
   $playerState.set(withPending(state));
 
+  restored = null;
+
   if (event.position_ms !== undefined) $position.set(event.position_ms);
 
   if (track) updateTrackColor(track.album.images[0]?.url ?? "");
@@ -737,43 +765,49 @@ const RESTART_DELAY_MS = 2_000;
 
 /**
  * Opens onto whatever the account is playing rather than an empty player.
- * Connect keeps the current track server-side and decorates it, so this costs
- * one read and no metadata lookups.
+ * The cluster names the track by uri and decorates it only when the device
+ * that was playing bothered to, so the metadata is fetched like anywhere else.
  */
 const restoreState = async () => {
   if ($playerState.get()) return;
 
   const cluster = await getCluster(await webSession.ensureToken());
   const state = cluster.player_state;
-  const track = state?.track;
+  const uri = state?.track?.uri;
 
-  if (!track?.uri) return;
+  if (!uri) return;
 
-  const meta = track.metadata ?? {};
+  const track = await trackOf(uri);
   const position = Number(state?.position_as_of_timestamp ?? 0) || 0;
 
-  $playerState.set({
+  const playback = {
     paused: !state?.is_playing || state?.is_paused === true,
     loading: false,
     position,
-    duration: Number(meta.duration ?? state?.duration ?? 0) || 0,
+    duration: track.duration_ms || Number(state?.duration ?? 0) || 0,
     shuffle: false,
     repeat_mode: 0,
     track_window: {
-      current_track: asTrack({
-        uri: track.uri,
-        uid: track.uid ?? "",
-        name: meta.title ?? "",
-        artist: meta.artist_name ?? "",
-        image: meta.image_url ?? "",
-        durationMs: Number(meta.duration ?? 0) || 0,
-      }),
+      current_track: track,
       previous_tracks: [],
       next_tracks: [],
     },
-  } as unknown as Spotify.PlaybackState);
+  } as unknown as Spotify.PlaybackState;
 
+  $playerState.set(playback);
   $position.set(position);
+
+  // our player holds nothing yet — this is what the first press loads, and the
+  // rest of the queue comes along so it does not stop after the one track
+  restored = {
+    uris: [uri, ...(state?.next_tracks ?? []).map((entry) => entry.uri)].filter(
+      (candidate) => candidate.startsWith("spotify:track:"),
+    ),
+    position,
+  };
+
+  updateTrackColor(track.album.images[0]?.url ?? "");
+  publishNowPlaying(playback);
 };
 
 const start = async () => {
