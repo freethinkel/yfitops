@@ -28,7 +28,7 @@ const CLIENT_TOKEN_TTL: Duration = Duration::from_secs(1_209_600);
 const TOKEN_TTL: Duration = Duration::from_secs(3_000);
 
 #[derive(Default)]
-pub struct PlayerHandle(Mutex<Option<Spirc>>);
+pub struct PlayerHandle(Mutex<Option<Spirc>>, Mutex<Option<Arc<Player>>>);
 
 #[derive(Serialize, Clone)]
 struct PlayerEventPayload {
@@ -157,13 +157,21 @@ pub async fn player_start(app: AppHandle, token: String, name: String) -> Result
         ..Default::default()
     };
 
-    let (spirc, task) = Spirc::new(config, session, Credentials::with_access_token(token), player, mixer)
-        .await
-        .map_err(|err| err.to_string())?;
+    let (spirc, task) = Spirc::new(
+        config,
+        session,
+        Credentials::with_access_token(token),
+        player.clone(),
+        mixer,
+    )
+    .await
+    .map_err(|err| err.to_string())?;
 
     tauri::async_runtime::spawn(task);
 
-    *app.state::<PlayerHandle>().0.lock().unwrap() = Some(spirc);
+    let handle = app.state::<PlayerHandle>();
+    *handle.0.lock().unwrap() = Some(spirc);
+    *handle.1.lock().unwrap() = Some(player);
 
     Ok(device_id)
 }
@@ -213,9 +221,31 @@ fn with_spirc<T>(app: &AppHandle, run: impl FnOnce(&Spirc) -> Result<T, librespo
     run(spirc).map_err(|err| err.to_string())
 }
 
+/// Straight to the player, not through Spirc: its task handles commands in one
+/// queue together with its network chatter, so a pause could sit behind a
+/// `connect-state` request and arrive audibly late. Spirc keeps up either way —
+/// it tracks playback by the player's own events.
+fn with_player(
+    app: &AppHandle,
+    run: impl FnOnce(&Player),
+) -> Result<(), String> {
+    let handle = app.state::<PlayerHandle>();
+    let guard = handle.1.lock().unwrap();
+    let player = guard.as_ref().ok_or("player is not running")?;
+
+    run(player);
+
+    Ok(())
+}
+
 #[tauri::command]
-pub fn player_play_pause(app: AppHandle) -> Result<(), String> {
-    with_spirc(&app, |spirc| spirc.play_pause())
+pub fn player_play(app: AppHandle) -> Result<(), String> {
+    with_player(&app, |player| player.play())
+}
+
+#[tauri::command]
+pub fn player_pause(app: AppHandle) -> Result<(), String> {
+    with_player(&app, |player| player.pause())
 }
 
 #[tauri::command]

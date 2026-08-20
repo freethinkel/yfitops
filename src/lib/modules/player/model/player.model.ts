@@ -57,18 +57,20 @@ const setRepeat = (mode: "off" | "context" | "track") =>
   invoke("player_set_repeat", { mode });
 
 /**
- * Optimistic: Spirc publishes the new state to Connect before the event comes
- * back, and a button that waits for that round trip feels broken.
+ * Which of the two to call is decided here rather than in Spirc: its task
+ * queues commands behind its own network traffic, and the delay is audible.
+ * The state flips optimistically for the same reason.
  */
 export const togglePlaypause = () => {
   const state = $playerState.get();
+  if (!state) return;
 
-  if (state) {
-    patchState({ paused: !state.paused });
-    retick(!state.paused);
-  }
+  const paused = !state.paused;
 
-  return invoke("player_play_pause").catch((err) =>
+  patchState({ paused });
+  retick(paused);
+
+  return invoke(paused ? "player_pause" : "player_play").catch((err) =>
     reportError("player play/pause", err),
   );
 };
