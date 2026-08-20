@@ -105,6 +105,10 @@ fn toggle_devtools(window: tauri::WebviewWindow) {
 }
 
 pub fn run() {
+    // librespot reports what it is doing through `log`, and without a logger
+    // a failing player is silent — set RUST_LOG=librespot=debug to hear it
+    env_logger::init();
+
     tauri::Builder::default()
         .manage(player::PlayerHandle::default())
         .plugin(tauri_plugin_http::init())

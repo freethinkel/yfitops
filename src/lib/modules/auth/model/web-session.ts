@@ -25,6 +25,24 @@ export const $isAuthorized = atom(false);
 export const $isPending = atom(false);
 export const $error = atom<string | null>(null);
 
+const COOKIE_KEY = "sp_dc";
+
+/**
+ * The webview loses the cookie between launches, and losing it means signing in
+ * again every time the app opens — so it is kept here as well. The webview stays
+ * the source of truth while it has one; this only covers the next start.
+ */
+const loginCookie = async () => {
+  const fromWebview = await invoke<string | null>("spotify_cookie");
+
+  if (fromWebview) {
+    localStorage.setItem(COOKIE_KEY, fromWebview);
+    return fromWebview;
+  }
+
+  return localStorage.getItem(COOKIE_KEY);
+};
+
 const withPending = async (action: () => Promise<void>) => {
   $isPending.set(true);
   $error.set(null);
@@ -87,7 +105,7 @@ export const ensureToken = (): Promise<string> => {
   }
 
   inflight ??= (async () => {
-    const cookie = await invoke<string | null>("spotify_cookie");
+    const cookie = await loginCookie();
 
     // no cookie is not a failure — it is simply nobody signed in yet
     if (!cookie) {
@@ -190,6 +208,7 @@ export const login = () =>
 export const logout = () =>
   withPending(async () => {
     token = null;
+    localStorage.removeItem(COOKIE_KEY);
     $isAuthorized.set(false);
 
     await inWindow(LOGOUT_URL, (url) => !url.includes("/logout"));
