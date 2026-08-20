@@ -56,10 +56,22 @@ const setShuffle = (shuffle: boolean) =>
 const setRepeat = (mode: "off" | "context" | "track") =>
   invoke("player_set_repeat", { mode });
 
-export const togglePlaypause = () =>
-  invoke("player_play_pause").catch((err) =>
+/**
+ * Optimistic: Spirc publishes the new state to Connect before the event comes
+ * back, and a button that waits for that round trip feels broken.
+ */
+export const togglePlaypause = () => {
+  const state = $playerState.get();
+
+  if (state) {
+    patchState({ paused: !state.paused });
+    retick(!state.paused);
+  }
+
+  return invoke("player_play_pause").catch((err) =>
     reportError("player play/pause", err),
   );
+};
 export const nextTrack = () => {
   // whatever was first in the queue is the track now starting
   const queue = $queue.get();
