@@ -97,6 +97,9 @@ export const fetchTrack = async (id: string) => {
     uri: `spotify:track:${id}`,
   });
 
+  // TODO: temporary — reading the real shape of the answer
+  console.log("getTrack raw:", JSON.stringify(data).slice(0, 1500));
+
   if (!data.trackUnion?.uri) throw new Error(`Track ${id} not found`);
 
   return toTrack(data.trackUnion);
@@ -111,6 +114,12 @@ export const fetchTracks = async (uris: string[]) => {
     "decorateContextTracks",
     DECORATE_HASH,
     { uris },
+  );
+
+  // TODO: temporary — reading the real shape of the answer
+  console.log(
+    "decorateContextTracks raw:",
+    JSON.stringify(data).slice(0, 1500),
   );
 
   return (data.decorateContextTracks ?? [])

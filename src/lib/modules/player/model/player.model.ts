@@ -12,7 +12,7 @@ import {
   $likedSongs,
   toggleLike,
 } from "$lib/modules/playlist/model/playlist.model";
-import { fetchTrack, fetchTracks } from "$lib/shared/api/catalog";
+import { fetchTracks } from "$lib/shared/api/catalog";
 import { getAccentColorFromImage } from "$lib/shared/helpers/color";
 import { reportError } from "$lib/shared/helpers/errors";
 
@@ -523,7 +523,11 @@ const trackOf = async (uri: string) => {
   const hit = trackCache.get(uri);
   if (hit) return hit;
 
-  const track = await fetchTrack(uri.split(":")[2] ?? "");
+  // `getTrack` knows the name and the length but neither the artists nor the
+  // album; decorating is what fills those in, and the queue needs it anyway
+  const [track] = await fetchTracks([uri]);
+  if (!track) throw new Error(`No metadata for ${uri}`);
+
   trackCache.set(uri, track);
 
   return track;
@@ -577,7 +581,13 @@ const applyEvent = async (event: PlayerEvent) => {
     duration: track?.duration_ms ?? previous?.duration ?? 0,
     shuffle: previous?.shuffle ?? false,
     repeat_mode: previous?.repeat_mode ?? 0,
-    track_window: { current_track: current },
+    // the SDK reported the neighbours too; librespot does not, and the queue
+    // panel is where that information lives now
+    track_window: {
+      current_track: current,
+      previous_tracks: [],
+      next_tracks: [],
+    },
   } as unknown as Spotify.PlaybackState;
 
   $playerState.set(withPending(state));
