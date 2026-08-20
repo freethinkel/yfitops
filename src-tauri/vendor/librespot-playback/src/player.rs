@@ -1076,11 +1076,27 @@ impl PlayerTrackLoader {
             // Not all audio files are encrypted. If we can't get a key, try loading the track
             // without decryption. If the file was encrypted after all, the decoder will fail
             // parsing and bail out, so we should be safe from outputting ear-piercing noise.
-            let key = match self.session.audio_key().request(track_id, file_id).await {
-                Ok(key) => Some(key),
-                Err(e) => {
-                    warn!("Unable to load key, continuing without decryption: {e}");
-                    None
+            //
+            // yfitops: skipping quickly makes the key service refuse for a moment, and going
+            // on without a key hands the decoder ciphertext — the track then dies as "end of
+            // stream" and gets marked unavailable, which reads as playback that runs silently.
+            // A couple of retries ride out the refusal.
+            let mut attempts = 0;
+
+            let key = loop {
+                match self.session.audio_key().request(track_id, file_id).await {
+                    Ok(key) => break Some(key),
+                    Err(e) => {
+                        attempts += 1;
+
+                        if attempts > 2 {
+                            warn!("Unable to load key, continuing without decryption: {e}");
+                            break None;
+                        }
+
+                        debug!("Audio key refused ({e}), retry {attempts}");
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                    }
                 }
             };
 
