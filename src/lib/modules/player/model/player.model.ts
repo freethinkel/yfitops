@@ -1,17 +1,18 @@
 import { atom, computed, onMount } from "nanostores";
 import { authModel, webSession } from "$lib/modules/auth/model";
 import {
+  command,
   getCluster,
   setQueue,
   skipTo,
+  transfer,
   type QueueEntry,
 } from "$lib/shared/api/connect-state";
 import {
   $likedSongs,
   toggleLike,
 } from "$lib/modules/playlist/model/playlist.model";
-import { spotifyApi } from "$lib/shared/api/spotify";
-import { httpError } from "$lib/shared/api/http-error";
+import { fetchTracks } from "$lib/shared/api/catalog";
 import { getAccentColorFromImage } from "$lib/shared/helpers/color";
 import { reportError } from "$lib/shared/helpers/errors";
 import { loadWebSdk } from "./web-sdk";
@@ -51,32 +52,23 @@ const device = () =>
     ),
   ]);
 
-/**
- * Shuffle and repeat answer 200 with an opaque string where the docs promise
- * an empty 204, and the API wrapper logs a parse failure for every one of
- * them. Going over fetch skips that, and turns a failure into a readable
- * error instead of a bare XMLHttpRequest. Global fetch on purpose — this is
- * the public API, which sends CORS headers; the Tauri plugin is only needed
- * for the internal hosts.
- */
-const playerCommand = async (path: string, params: Record<string, string>) => {
-  const query = new URLSearchParams(params);
-  const response = await fetch(
-    `https://api.spotify.com/v1/me/player/${path}?${query}`,
-    {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${await authModel.ensureToken()}` },
-    },
-  );
+/** Every player command goes down Connect's own channel, same as the queue. */
+const send = async (endpoint: string, payload?: Record<string, unknown>) =>
+  command({
+    accessToken: await webSession.ensureToken(),
+    deviceId: await device(),
+    endpoint,
+    payload,
+  });
 
-  if (!response.ok) throw httpError(`player ${path}`, response);
-};
+const setShuffle = (state: boolean) =>
+  send("set_options", { shuffling_context: state });
 
-const setShuffle = (state: boolean, device: string) =>
-  playerCommand("shuffle", { state: String(state), device_id: device });
-
-const setRepeat = (state: "off" | "context" | "track", device: string) =>
-  playerCommand("repeat", { state, device_id: device });
+const setRepeat = (state: "off" | "context" | "track") =>
+  send("set_options", {
+    repeating_context: state === "context",
+    repeating_track: state === "track",
+  });
 
 export const togglePlaypause = () => player?.togglePlay();
 export const nextTrack = () => {
@@ -130,12 +122,12 @@ let toggleChain: Promise<unknown> = Promise.resolve();
 const sendToggle = <T>(
   key: ToggleKey,
   value: boolean | number,
-  send: () => Promise<T>,
+  apply: () => Promise<T>,
 ) => {
   pending.set(key, value);
   patchState({ [key]: value } as Partial<Spotify.PlaybackState>);
 
-  toggleChain = toggleChain.then(send).catch((err) => {
+  toggleChain = toggleChain.then(apply).catch((err) => {
     pending.delete(key);
     reportError(`player ${key}`, err);
   });
@@ -149,9 +141,7 @@ export const toggleShuffle = () => {
 
   const shuffle = !state.shuffle;
 
-  return sendToggle("shuffle", shuffle, async () =>
-    setShuffle(shuffle, await device()),
-  );
+  return sendToggle("shuffle", shuffle, () => setShuffle(shuffle));
 };
 
 /** off → context → track → off, the order the native clients cycle through. */
@@ -159,9 +149,7 @@ export const cycleRepeat = () => {
   const mode = $playerState.get()?.repeat_mode ?? 0;
   const next = (["context", "track", "off"] as const)[mode];
 
-  return sendToggle("repeat_mode", (mode + 1) % 3, async () =>
-    setRepeat(next, await device()),
-  );
+  return sendToggle("repeat_mode", (mode + 1) % 3, () => setRepeat(next));
 };
 
 export const prevTrack = () => player?.previousTrack();
@@ -207,69 +195,74 @@ export const seekBy = (deltaMs: number) => {
   seek(Math.min(Math.max($position.get() + deltaMs, 0), duration));
 };
 
-const startPlayback = (uris: string[], id: string) =>
-  spotifyApi.play({ uris, device_id: id });
+/**
+ * A bare list of tracks has no context of its own, so it travels as a
+ * single-page anonymous one — which is how the native clients play a
+ * selection too.
+ */
+const startPlayback = (uris: string[], index = 0) =>
+  send("play", {
+    context: {
+      uri: "",
+      url: "",
+      metadata: {},
+      pages: [{ tracks: uris.map((uri) => ({ uri })) }],
+    },
+    options: { skip_to: { track_index: index }, license: "premium" },
+    play_origin: { feature_identifier: "harmony", feature_version: "desktop" },
+  });
 
 /**
  * Every one of these is called straight from a click handler, so a rejection
  * has nowhere to go and used to vanish — a dead device looked exactly like a
  * click that did nothing at all.
  */
-const withDevice = async (
-  what: string,
-  run: (id: string) => Promise<unknown>,
-) => {
+const withDevice = async (what: string, run: () => Promise<unknown>) => {
   try {
-    await run(await device());
+    await run();
   } catch (err) {
     reportError(`player ${what}`, err);
   }
 };
 
 /**
- * With shuffle on the API picks a random entry from `uris` instead of the
- * first one, so clicking a row started some other track. Shuffle is turned off
- * for the call and put back right after — re-enabling keeps the track that is
- * already playing and only reshuffles what comes next, which is what the
- * native clients do.
+ * `skip_to` pins the track the user clicked whatever shuffle is set to, so
+ * the old dance of turning shuffle off around the call — three requests for
+ * one click — is gone.
  */
 export const play = (uris: string[]) =>
-  withDevice("play", async (id) => {
-    const shuffled = $playerState.get()?.shuffle ?? false;
+  withDevice("play", () => startPlayback(uris));
 
-    if (shuffled) await setShuffle(false, id);
-    // the server acks the shuffle change before the device has applied it, so
-    // the call right behind it can still be shuffled — naming the offset pins
-    // the first track whichever way that race lands
-    await spotifyApi.play({ uris, offset: { position: 0 }, device_id: id });
-    if (shuffled) await setShuffle(true, id);
-  });
-
-/** Plays a whole playlist, album or artist by its uri. */
 /** Same for a bare list of tracks — liked songs have no context uri. */
 export const playShuffled = (uris: string[]) =>
-  withDevice("playShuffled", async (id) => {
+  withDevice("playShuffled", async () => {
     patchState({ shuffle: true });
     pending.set("shuffle", true);
 
-    await setShuffle(true, id);
-    await startPlayback(uris, id);
+    await setShuffle(true);
+    await startPlayback(uris);
   });
 
 /** Starts a playlist or album shuffled, the way the native clients do. */
 export const shuffleContext = (uri: string) =>
-  withDevice("shuffleContext", async (id) => {
+  withDevice("shuffleContext", async () => {
     patchState({ shuffle: true });
     pending.set("shuffle", true);
 
-    await setShuffle(true, id);
-    await playContext(uri);
+    await setShuffle(true);
+    await startContext(uri);
+  });
+
+/** Plays a whole playlist, album or artist by its uri. */
+const startContext = (uri: string) =>
+  send("play", {
+    context: { uri, url: `context://${uri}`, metadata: {} },
+    options: { license: "premium" },
+    play_origin: { feature_identifier: "harmony", feature_version: "desktop" },
   });
 
 export const playContext = (uri: string) =>
-  withDevice("playContext", (id) =>
-    spotifyApi.play({ context_uri: uri, device_id: id }),
-  );
+  withDevice("playContext", () => startContext(uri));
 
 export type QueueTrack = {
   uri: string;
@@ -344,30 +337,27 @@ const asQueueTrack = (track: QueueTrack | string): QueueTrack => {
  * in bulk from the Web API.
  */
 const hydrate = async (tracks: QueueTrack[], mine: number) => {
-  const ids = [
+  const uris = [
     ...new Set(
       tracks
         .filter(
           (track) => !track.name && track.uri.startsWith("spotify:track:"),
         )
-        .map((track) => track.uri.split(":")[2]),
+        .map((track) => track.uri),
     ),
   ];
 
-  if (!ids.length) return;
+  if (!uris.length) return;
 
   const found = new Map<string, SpotifyApi.TrackObjectFull>();
 
-  for (let i = 0; i < ids.length; i += 50) {
-    const res = await spotifyApi.getTracks(ids.slice(i, i + 50));
-    for (const track of res.tracks) if (track) found.set(track.id, track);
-  }
+  for (const track of await fetchTracks(uris)) found.set(track.uri, track);
 
   if (mine !== epoch) return;
 
   $queue.set(
     ($queue.get() ?? []).map((track) => {
-      const full = found.get(track.uri.split(":")[2]);
+      const full = found.get(track.uri);
       if (!full || track.name) return track;
 
       return {
@@ -612,10 +602,11 @@ const restoreLastSession = async (id: string) => {
   restored = true;
 
   try {
-    const state = await spotifyApi.getMyCurrentPlaybackState();
-    if (state?.is_playing) return;
+    const accessToken = await webSession.ensureToken();
+    const cluster = await getCluster(accessToken);
+    if (cluster.player_state?.is_playing) return;
 
-    await spotifyApi.transferMyPlayback([id], { play: false });
+    await transfer({ accessToken, deviceId: id });
   } catch (err) {
     reportError("player restore", err);
   }

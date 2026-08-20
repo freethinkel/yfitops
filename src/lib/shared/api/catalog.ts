@@ -15,6 +15,8 @@ const IN_LIBRARY_HASH =
   "134337999233cc6fdd6b1e6dbf94841409f04a946c5c7b744b09ba0dfe5a85ed";
 const TRACK_HASH =
   "1a2f0cce77c90a4a5b1730beecc4da7e34290d684324c16663bf09a268ebce48";
+const DECORATE_HASH =
+  "383de00240775c39a6afe0b1055dc562b2a3930894201f9762f3fc32a74971c7";
 
 /**
  * Search does not ship in the player's main bundle — it lives in the chunk the
@@ -98,6 +100,22 @@ export const fetchTrack = async (id: string) => {
   if (!data.trackUnion?.uri) throw new Error(`Track ${id} not found`);
 
   return toTrack(data.trackUnion);
+};
+
+/**
+ * Bulk metadata for a queue: Connect decorates only the tracks nearest the
+ * current one, the rest arrive as bare uris.
+ */
+export const fetchTracks = async (uris: string[]) => {
+  const data = await query<{ decorateContextTracks?: RawTrack[] }>(
+    "decorateContextTracks",
+    DECORATE_HASH,
+    { uris },
+  );
+
+  return (data.decorateContextTracks ?? [])
+    .filter((raw) => raw?.uri)
+    .map(toTrack);
 };
 
 type RawAlbum = {
