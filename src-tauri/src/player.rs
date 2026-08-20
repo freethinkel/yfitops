@@ -216,6 +216,11 @@ fn to_payload(event: &librespot_playback::player::PlayerEvent) -> Option<PlayerE
             ..
         } => ("paused", Some(track_id.to_uri()), Some(*position_ms)),
         Stopped { track_id, .. } => ("stopped", Some(track_id.to_uri()), None),
+        Loading {
+            track_id,
+            position_ms,
+            ..
+        } => ("loading", Some(track_id.to_uri()), Some(*position_ms)),
         TrackChanged { audio_item } => ("track", Some(audio_item.track_id.to_uri()), None),
         Seeked {
             track_id,

@@ -636,6 +636,7 @@ type PlayerEvent = {
     | "playing"
     | "paused"
     | "stopped"
+    | "loading"
     | "track"
     | "seeked"
     | "position"
@@ -682,6 +683,9 @@ const applyEvent = async (event: PlayerEvent) => {
   const state = {
     ...previous,
     paused,
+    // the field the SDK used to report, so anything reading it still works:
+    // the track is fetched and decoded but no sound has started yet
+    loading: event.kind === "loading",
     position: event.position_ms ?? previous?.position ?? 0,
     duration: track?.duration_ms ?? previous?.duration ?? 0,
     shuffle: previous?.shuffle ?? false,
