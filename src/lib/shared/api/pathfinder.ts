@@ -326,10 +326,11 @@ export const pathfinderQuery = async <T>({
     return data.data as T;
   };
 
-  const meta = await bundleMeta();
-
+  // deliberately not `bundleMeta()`: the fallback hash is good until the
+  // gateway says otherwise, and awaiting the bundle here would spend a few
+  // megabytes before the very first query of a fresh install
   try {
-    return await send(meta.hashes[operationName] ?? fallbackHash);
+    return await send(readMeta()?.hashes[operationName] ?? fallbackHash);
   } catch (err) {
     if (!(err as { stale?: boolean }).stale) throw err;
 
