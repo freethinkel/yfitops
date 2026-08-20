@@ -140,8 +140,6 @@ pub fn run() {
             player::player_start,
             player::player_play,
             player::player_pause,
-            player::player_next,
-            player::player_previous,
             player::player_seek,
             player::player_skip_to,
             #[cfg(target_os = "macos")]

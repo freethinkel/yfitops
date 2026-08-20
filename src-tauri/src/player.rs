@@ -267,16 +267,6 @@ pub fn player_pause(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn player_next(app: AppHandle) -> Result<(), String> {
-    with_spirc(&app, |spirc| spirc.next())
-}
-
-#[tauri::command]
-pub fn player_previous(app: AppHandle) -> Result<(), String> {
-    with_spirc(&app, |spirc| spirc.prev())
-}
-
-#[tauri::command]
 pub fn player_seek(app: AppHandle, position_ms: u32) -> Result<(), String> {
     with_player(&app, |player| player.seek(position_ms))
 }

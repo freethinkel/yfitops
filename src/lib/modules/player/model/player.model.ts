@@ -73,13 +73,91 @@ export const togglePlaypause = () => {
     reportError("player play/pause", err),
   );
 };
-export const nextTrack = () => {
-  // whatever was first in the queue is the track now starting
-  const queue = $queue.get();
-  if (queue?.length) optimistic(queue.slice(1));
+/**
+ * Tracks already played, so stepping back does not have to ask anyone.
+ * Connect reports what comes next but keeps no history of its own.
+ */
+const history: QueueTrack[] = [];
 
-  invoke("player_next").catch((err) => reportError("player next", err));
+const asTrack = (item: QueueTrack) =>
+  ({
+    id: item.uri.split(":")[2] ?? "",
+    uri: item.uri,
+    name: item.name,
+    duration_ms: item.durationMs,
+    artists: [{ name: item.artist, uri: "" }],
+    album: { name: "", uri: "", images: [{ url: item.image }] },
+  }) as unknown as Spotify.Track;
+
+const asQueueTrackFromState = (state: Spotify.PlaybackState): QueueTrack => {
+  const track = state.track_window.current_track;
+
+  return {
+    uri: track.uri,
+    uid: "",
+    name: track.name,
+    artist: track.artists.map((artist) => artist.name).join(", "),
+    image: track.album.images[0]?.url ?? "",
+    durationMs: state.duration,
+  };
 };
+
+/**
+ * Until the player confirms this uri, events about any other track belong to
+ * what was playing before and would drag the interface back a step.
+ */
+let expected = "";
+let skipTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Switching shows the new track at once and sends a single command for the
+ * whole burst — holding the key would otherwise queue one load per press and
+ * the player would spend its time on tracks nobody waits for any more.
+ */
+const skipBy = (delta: number) => {
+  const state = $playerState.get();
+  const queue = [...($queue.get() ?? [])];
+  if (!state) return;
+
+  const current = asQueueTrackFromState(state);
+  const target = delta > 0 ? queue.shift() : history.pop();
+  if (!target) return;
+
+  if (delta > 0) history.push(current);
+  else queue.unshift(current);
+
+  expected = target.uri;
+
+  $playerState.set({
+    ...state,
+    paused: false,
+    position: 0,
+    duration: target.durationMs,
+    track_window: {
+      ...state.track_window,
+      current_track: asTrack(target),
+    },
+  } as Spotify.PlaybackState);
+
+  $position.set(0);
+  $queue.set(queue);
+  retick(false);
+
+  if (skipTimer) clearTimeout(skipTimer);
+
+  skipTimer = setTimeout(() => {
+    skipTimer = null;
+
+    invoke("player_skip_to", { uri: expected }).catch((err) =>
+      reportError("player skip", err),
+    );
+  }, SKIP_DEBOUNCE_MS);
+};
+
+/** Long enough to collapse a burst of presses, short enough to feel immediate. */
+const SKIP_DEBOUNCE_MS = 300;
+
+export const nextTrack = () => skipBy(1);
 
 type ToggleKey = "shuffle" | "repeat_mode";
 
@@ -151,8 +229,7 @@ export const cycleRepeat = () => {
   return sendToggle("repeat_mode", (mode + 1) % 3, () => setRepeat(next));
 };
 
-export const prevTrack = () =>
-  invoke("player_previous").catch((err) => reportError("player previous", err));
+export const prevTrack = () => skipBy(-1);
 
 export const $currentLiked = computed(
   [$playerState, $likedSongs],
@@ -573,6 +650,13 @@ const applyEvent = async (event: PlayerEvent) => {
   const previous = $playerState.get();
   const uri = event.uri ?? previous?.track_window.current_track.uri ?? "";
   if (!uri) return;
+
+  // a switch is in flight: everything the player still says about the track
+  // being left behind would only pull the interface back to it
+  if (expected) {
+    if (uri !== expected) return;
+    expected = "";
+  }
 
   const changed = uri !== previous?.track_window.current_track.uri;
   const track = changed ? await trackOf(uri) : null;
