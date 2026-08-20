@@ -30,6 +30,7 @@ librespot-core = "0.8"
 librespot-playback = "0.8"
 librespot-connect = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+reqwest = { version = "0.13.4", features = ["json"] }
 
 [patch.crates-io]
 librespot-core = { path = "vendor/librespot-core" }

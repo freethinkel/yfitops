@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 mod cookies;
+mod player;
 #[cfg(target_os = "macos")]
 mod notification;
 #[cfg(target_os = "macos")]
@@ -105,6 +106,7 @@ fn toggle_devtools(window: tauri::WebviewWindow) {
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(player::PlayerHandle::default())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|_app| {
@@ -127,6 +129,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             create_auth_window,
             cookies::spotify_cookie,
+            player::player_start,
+            player::player_play_pause,
+            player::player_next,
+            player::player_previous,
+            player::player_seek,
+            player::player_set_volume,
+            player::player_set_shuffle,
+            player::player_set_repeat,
+            player::player_load_context,
+            player::player_load_tracks,
             hide_window_buttons,
             toggle_devtools
         ])
