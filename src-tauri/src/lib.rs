@@ -4,6 +4,8 @@ use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 mod cookies;
 mod player;
 #[cfg(target_os = "macos")]
+mod media_keys;
+#[cfg(target_os = "macos")]
 mod notification;
 #[cfg(target_os = "macos")]
 mod window_decorations;
@@ -121,6 +123,9 @@ pub fn run() {
             WebviewWindowBuilder::from_config(_app, &config)?.build()?;
 
             #[cfg(target_os = "macos")]
+            media_keys::install(_app.handle().clone());
+
+            #[cfg(target_os = "macos")]
             for (_, window) in _app.webview_windows().iter() {
                 window.unified_titlebar();
                 window.fancy_titlebar();
@@ -140,6 +145,8 @@ pub fn run() {
             player::player_seek,
             player::player_skip_to,
             player::player_preload,
+            #[cfg(target_os = "macos")]
+            media_keys::media_publish,
             player::player_set_shuffle,
             player::player_set_repeat,
             player::player_load_context,

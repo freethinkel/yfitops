@@ -610,7 +610,25 @@ const applyEvent = async (event: PlayerEvent) => {
     if (next) invoke("player_preload", { uri: next }).catch(() => {});
   }
 
+  publishNowPlaying(state);
   retick(paused);
+};
+
+/**
+ * The system panel doubles as our claim on the media keys: macOS hands them to
+ * whichever app reports that it is playing something.
+ */
+const publishNowPlaying = (state: Spotify.PlaybackState) => {
+  const track = state.track_window.current_track;
+
+  invoke("media_publish", {
+    title: track?.name ?? "",
+    artist: (track?.artists ?? []).map((artist) => artist.name).join(", "),
+    album: track?.album?.name ?? "",
+    durationMs: state.duration ?? 0,
+    positionMs: state.position ?? 0,
+    playing: !state.paused,
+  }).catch(() => {});
 };
 
 /** librespot starts as soon as anything observes the player state. */
@@ -624,6 +642,18 @@ onMount($playerState, () =>
     const stop = listen<PlayerEvent>("player-event", ({ payload }) =>
       applyEvent(payload).catch((err) => reportError("player event", err)),
     );
+
+    // the keys land in Rust and come back here, so a press runs exactly what a
+    // click on the same button runs
+    listen<string>("media-key", ({ payload }) => {
+      if (payload === "next") nextTrack();
+      else if (payload === "previous") prevTrack();
+      else if (payload === "play" && $playerState.get()?.paused)
+        togglePlaypause();
+      else if (payload === "pause" && !$playerState.get()?.paused)
+        togglePlaypause();
+      else if (payload === "toggle") togglePlaypause();
+    });
 
     try {
       const id = await invoke<string>("player_start", {
