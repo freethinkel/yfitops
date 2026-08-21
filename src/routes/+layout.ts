@@ -3,13 +3,10 @@
 export const ssr = false;
 
 import "$lib/styles/common.css";
-import { devtoolsModel } from "$lib/modules/app/model";
 
-// In dev the webview's own menu is left alone — it carries Inspect Element.
-// In release it is replaced rather than merely suppressed, so the console stays
-// reachable without the app feeling like a web page.
+// In dev the webview's own menu is left alone — it carries Inspect Element. In
+// release it is suppressed, so the app stops feeling like a web page; the
+// console is in the Help menu.
 if (!import.meta.env.DEV) {
-  document.addEventListener("contextmenu", (event) => {
-    void devtoolsModel.contextMenu(event);
-  });
+  document.addEventListener("contextmenu", (event) => event.preventDefault());
 }

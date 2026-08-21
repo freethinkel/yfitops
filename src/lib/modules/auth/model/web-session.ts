@@ -91,6 +91,10 @@ const request = async (
 
   const data = await response.json();
 
+  console.log(
+    `token (${reason}): ${response.status}${data?.isAnonymous ? " anonymous" : ""}`,
+  );
+
   if (!data?.accessToken) {
     throw new Error(`Токен не выдан: ${data?.message ?? response.status}`);
   }

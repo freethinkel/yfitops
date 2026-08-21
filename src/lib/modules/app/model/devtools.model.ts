@@ -32,15 +32,3 @@ export const installMenu = async () => {
   await menu.append(await Submenu.new({ text: "Help", items: [item] }));
   await menu.setAsAppMenu();
 };
-
-/**
- * The app suppresses the webview's own context menu to stop feeling like a web
- * page, which also took away the only other way in. This puts one item back —
- * and only where nothing else claimed the click.
- */
-export const contextMenu = async (event: MouseEvent) => {
-  if (event.defaultPrevented) return;
-
-  event.preventDefault();
-  await (await Menu.new({ items: [item] })).popup();
-};

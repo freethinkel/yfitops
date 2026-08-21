@@ -59,6 +59,15 @@ const BUNDLE_TIMEOUT = 60_000;
 // legitimately takes longer than the rest
 const QUERY_TIMEOUT = 20_000;
 
+/**
+ * Every leg leaves a line behind. Without one, a call repeating itself looked
+ * like nothing at all: the failure that caused it is caught and turned into a
+ * fallback several frames away, and the console stayed empty while the same
+ * four megabytes went down again and again.
+ */
+const trace = (leg: string, started: number, outcome: string) =>
+  console.log(`${leg}: ${outcome} in ${Date.now() - started}ms`);
+
 const request = async (
   leg: string,
   url: string,
@@ -69,13 +78,20 @@ const request = async (
     setTimeout(() => reject(new Error(`no answer in ${ms / 1000}s`)), ms),
   );
 
+  const started = Date.now();
+
   try {
-    return await Promise.race([
+    const response = await Promise.race([
       fetch(url, { ...init, connectTimeout: ms }),
       expired,
     ]);
+
+    trace(leg, started, String(response.status));
+
+    return response;
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
+    trace(leg, started, reason);
     throw new Error(`${leg} (${url.split("/")[2]}): ${reason}`);
   }
 };
