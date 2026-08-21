@@ -113,15 +113,25 @@ export const togglePlaypause = () => {
  */
 const history: QueueTrack[] = [];
 
-const asTrack = (item: QueueTrack) =>
-  ({
+/**
+ * A queue entry carries what a 32px row needs and nothing more — its cover is
+ * the smallest size Spotify offers, and the panels that show the current track
+ * ask for the largest. So the real track is used wherever it is already known,
+ * and what is built here is only the stand-in until it is.
+ */
+const asTrack = (item: QueueTrack) => {
+  const known = trackCache.get(item.uri);
+  if (known) return known as unknown as Spotify.Track;
+
+  return {
     id: item.uri.split(":")[2] ?? "",
     uri: item.uri,
     name: item.name,
     duration_ms: item.durationMs,
     artists: [{ name: item.artist, uri: "" }],
     album: { name: "", uri: "", images: [{ url: item.image }] },
-  }) as unknown as Spotify.Track;
+  } as unknown as Spotify.Track;
+};
 
 const asQueueTrackFromState = (state: Spotify.PlaybackState): QueueTrack => {
   const track = state.track_window.current_track;
@@ -508,7 +518,11 @@ const hydrate = async (tracks: QueueTrack[], mine: number) => {
 
   const found = new Map<string, SpotifyApi.TrackObjectFull>();
 
-  for (const track of await fetchTracks(uris)) found.set(track.uri, track);
+  // the same tracks the panels ask for by uri: fetched once, kept for both
+  for (const track of await fetchTracks(uris)) {
+    found.set(track.uri, track);
+    trackCache.set(track.uri, track);
+  }
 
   if (mine !== epoch) return;
 
@@ -764,7 +778,13 @@ const applyEvent = async (event: PlayerEvent) => {
   }
 
   const changed = uri !== previous?.track_window.current_track.uri;
-  const track = changed ? await trackOf(uri) : null;
+
+  // a skip puts the stand-in on screen before the player confirms anything,
+  // and the confirmation names the track already showing — so without this the
+  // panels keep the queue's thumbnail and the accent colour for the whole
+  // track. Once fetched it is a cache hit, not a request
+  const standIn = !previous?.track_window.current_track.album?.name;
+  const track = changed || standIn ? await trackOf(uri) : null;
   const paused = event.kind === "paused" || event.kind === "stopped";
 
   const current = (track ??
