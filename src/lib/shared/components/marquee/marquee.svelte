@@ -1,10 +1,14 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
+
   interface Props {
     text: string;
     /** Seconds per 100px of overflow — keeps long titles from racing. */
     speed?: number;
+    /** Rendered in place of `text`, which still measures the overflow. */
+    children?: Snippet;
   }
-  const { text, speed = 6 }: Props = $props();
+  const { text, speed = 6, children }: Props = $props();
 
   const GAP_PX = 32;
 
@@ -43,9 +47,11 @@
     style:--duration="{duration}s"
     style:--gap="{GAP_PX}px"
   >
-    <span bind:this={innerEl}>{text}</span>
+    <span bind:this={innerEl}>{#if children}{@render children()}{:else}{text}{/if}</span>
     {#if overflow > 0}
-      <span aria-hidden="true">{text}</span>
+      <span aria-hidden="true"
+        >{#if children}{@render children()}{:else}{text}{/if}</span
+      >
     {/if}
   </div>
 </div>

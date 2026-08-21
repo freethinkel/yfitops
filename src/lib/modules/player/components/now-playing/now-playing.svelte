@@ -18,13 +18,27 @@
   <div class="meta">
     <div class="name">{track?.name ?? $t.nothingPlaying}</div>
     <div class="artists">
-      {track?.artists.map((artist) => artist.name).join(", ") ?? ""}
+      {#each track?.artists ?? [] as artist, position (artist.uri + position)}
+        {#if position > 0},
+        {/if}
+        {@const id = artist.uri.split(":")[2]}
+        {#if id}
+          <a href="/app/artist/{id}" draggable="false">{artist.name}</a>
+        {:else}{artist.name}{/if}
+      {/each}
     </div>
 
     {#if track}
+      {@const albumId = track.album.uri.split(":")[2]}
       <dl class="details">
         <dt>{$t.album}</dt>
-        <dd>{track.album.name}</dd>
+        <dd>
+          {#if albumId}
+            <a href="/app/album/{albumId}" draggable="false"
+              >{track.album.name}</a
+            >
+          {:else}{track.album.name}{/if}
+        </dd>
         <dt>{$t.duration}</dt>
         <dd>{formatDuration(track.duration_ms)}</dd>
       </dl>
@@ -76,6 +90,16 @@
     margin-top: 0.125rem;
     font-size: 0.84rem;
     color: oklch(from var(--color-text) l c h / 0.8);
+
+    & a {
+      color: inherit;
+      text-decoration: none;
+
+      &:hover {
+        color: var(--color-text);
+        text-decoration: underline;
+      }
+    }
   }
   .details {
     display: grid;
@@ -96,6 +120,16 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+
+      & a {
+        color: inherit;
+        text-decoration: none;
+
+        &:hover {
+          color: var(--color-text);
+          text-decoration: underline;
+        }
+      }
     }
   }
   .lyrics {

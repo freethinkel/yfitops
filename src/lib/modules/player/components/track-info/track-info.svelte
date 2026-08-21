@@ -29,7 +29,16 @@
     <div class="track_info__artists">
       <Marquee
         text={track?.artists.map((artist) => artist.name).join(", ") ?? ""}
-      />
+      >
+        {#each track?.artists ?? [] as artist, position (artist.uri + position)}
+          {#if position > 0},
+          {/if}
+          {@const id = artist.uri.split(":")[2]}
+          {#if id}
+            <a href="/app/artist/{id}" draggable="false">{artist.name}</a>
+          {:else}{artist.name}{/if}
+        {/each}
+      </Marquee>
     </div>
   </div>
 
@@ -123,6 +132,16 @@
       color: oklch(from var(--color-text) l c h / 0.8);
       white-space: nowrap;
       overflow: hidden;
+
+      & a {
+        color: inherit;
+        text-decoration: none;
+
+        &:hover {
+          color: var(--color-text);
+          text-decoration: underline;
+        }
+      }
     }
   }
 </style>
