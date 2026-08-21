@@ -1,6 +1,6 @@
 import { atom, onMount } from "nanostores";
 import { fetch } from "@tauri-apps/plugin-http";
-import { internalSession } from "$lib/modules/auth/model";
+import { webSession } from "$lib/modules/auth/model";
 import { playerModel } from "$lib/modules/player/model";
 import type { Lyrics } from "../types";
 
@@ -14,7 +14,7 @@ import type { Lyrics } from "../types";
  */
 const LYRICS_URL = "https://spclient.wg.spotify.com/color-lyrics/v2/track";
 
-const session = internalSession;
+const session = webSession;
 
 export const $isEnabled = session.$isAuthorized;
 export const enable = session.login;

@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
+mod cookies;
+mod player;
+#[cfg(target_os = "macos")]
+mod media_keys;
 #[cfg(target_os = "macos")]
 mod notification;
 #[cfg(target_os = "macos")]
@@ -103,16 +107,23 @@ fn toggle_devtools(window: tauri::WebviewWindow) {
 }
 
 pub fn run() {
+    // librespot reports what it is doing through `log`, and without a logger
+    // a failing player is silent — set RUST_LOG=librespot=debug to hear it
+    env_logger::init();
+
     tauri::Builder::default()
+        .manage(player::PlayerHandle::default())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|_app| {
-            // built here, not from the config, so the SDK's iframe gets the
-            // media-session script — see media_session.js
+            // the config marks the window `create: false` and it is built here
+            // instead, so the macOS titlebar work below runs against a window
+            // that already exists
             let config = _app.config().app.windows[0].clone();
-            WebviewWindowBuilder::from_config(_app, &config)?
-                .initialization_script_for_all_frames(include_str!("media_session.js"))
-                .build()?;
+            WebviewWindowBuilder::from_config(_app, &config)?.build()?;
+
+            #[cfg(target_os = "macos")]
+            media_keys::install(_app.handle().clone());
 
             #[cfg(target_os = "macos")]
             for (_, window) in _app.webview_windows().iter() {
@@ -125,6 +136,20 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             create_auth_window,
+            cookies::spotify_cookie,
+            player::player_start,
+            player::player_set_token,
+            player::player_play,
+            player::player_pause,
+            player::player_halt,
+            player::player_seek,
+            player::player_skip_to,
+            #[cfg(target_os = "macos")]
+            media_keys::media_publish,
+            player::player_set_shuffle,
+            player::player_set_repeat,
+            player::player_load_context,
+            player::player_load_tracks,
             hide_window_buttons,
             toggle_devtools
         ])

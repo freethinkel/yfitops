@@ -5,10 +5,15 @@ import {
   type ReadableAtom,
   type WritableAtom,
 } from "nanostores";
-import { authModel, internalSession } from "$lib/modules/auth/model";
+import { webSession } from "$lib/modules/auth/model";
 import { userModel } from "$lib/modules/user/model";
-import { spotifyApi } from "$lib/shared/api/spotify";
-import { httpError } from "$lib/shared/api/http-error";
+import { fetchLikedTracks, fetchPlaylists } from "$lib/shared/api/library";
+import { fetchAlbum, fetchArtist, inLibrary } from "$lib/shared/api/catalog";
+import {
+  addTracks,
+  removeTracks,
+  setInLibrary,
+} from "$lib/shared/api/mutations";
 import { fetchInternalPlaylist } from "./internal-playlist";
 import { forget, persisted, read, write } from "$lib/shared/helpers/persisted";
 import { reportError } from "$lib/shared/helpers/errors";
@@ -24,11 +29,11 @@ let likedLoaded = false;
 let playlistsLoaded = false;
 
 /**
- * The saved list is paged fifty at a time, so a library of any size is a burst
- * of requests — and Spotify measures its rate limit over a rolling 30 second
- * window. Doing that on every launch was most of the way to a 429 on its own.
- * Liking a track updates the cached copy as it goes, so the only thing this
- * delays is a change made on another device.
+ * The gateway hands over the whole saved list in a page or two, so this is no
+ * longer the burst of requests the Web API made of it — but it is still a few
+ * hundred kilobytes on every launch for a list that rarely changes. Liking a
+ * track updates the cached copy as it goes, so the only thing this delays is a
+ * change made on another device.
  */
 const LIKED = "liked";
 const LIKED_FETCHED_AT = "liked-fetched-at";
@@ -37,7 +42,7 @@ const LIKED_MAX_AGE = 30 * 60 * 1000;
 onMount($likedSongs, () => {
   const unbind = persisted($likedSongs, LIKED);
 
-  const stop = authModel.whenAuthorized(async () => {
+  const stop = webSession.whenAuthorized(async () => {
     if (likedLoaded) return;
 
     // read from the cache, not the store: the store is restored asynchronously
@@ -52,20 +57,7 @@ onMount($likedSongs, () => {
       return;
     }
 
-    const load = async (
-      tracks: SpotifyApi.SavedTrackObject[],
-      offset = 0,
-    ): Promise<SpotifyApi.SavedTrackObject[]> => {
-      const res = await spotifyApi.getMySavedTracks({ limit: 50, offset });
-
-      if (res.items.length === 50) {
-        return load([...tracks, ...res.items], offset + 50);
-      }
-
-      return [...tracks, ...res.items];
-    };
-
-    $likedSongs.set(await load([]));
+    $likedSongs.set(await fetchLikedTracks());
     likedLoaded = true;
     write(LIKED_FETCHED_AT, Date.now());
   });
@@ -79,9 +71,9 @@ onMount($likedSongs, () => {
 onMount($playlists, () => {
   const unbind = persisted($playlists, "playlists");
 
-  const stop = authModel.whenAuthorized(async () => {
+  const stop = webSession.whenAuthorized(async () => {
     if (playlistsLoaded) return;
-    $playlists.set((await spotifyApi.getUserPlaylists()).items);
+    $playlists.set(await fetchPlaylists());
     playlistsLoaded = true;
   });
 
@@ -105,7 +97,7 @@ const cached = <T>(key: string, load: () => Promise<T>) => {
   onMount($store, () => {
     const unbind = persisted($store, key);
 
-    const stop = authModel.whenAuthorized(async () => {
+    const stop = webSession.whenAuthorized(async () => {
       if (loaded) return;
       $store.set(await load());
       loaded = true;
@@ -131,7 +123,7 @@ export const $editablePlaylists = computed(
 );
 
 export const addToPlaylist = async (playlistId: string, uri: string) => {
-  await spotifyApi.addTracksToPlaylist(playlistId, [uri]);
+  await addTracks(`spotify:playlist:${playlistId}`, [uri]);
 
   // the playlist is cached in memory and on disk — both must forget it
   cache.delete(`playlist:${playlistId}`);
@@ -139,18 +131,10 @@ export const addToPlaylist = async (playlistId: string, uri: string) => {
 };
 
 export const playlist = (id: string) =>
-  cached(`playlist:${id}`, async () => {
-    try {
-      return await spotifyApi.getPlaylist(id);
-    } catch (err) {
-      // Algorithmic playlists are 404 on the Web API — the gateway has them.
-      if (!internalSession.$isAuthorized.get()) throw err;
-      return fetchInternalPlaylist(id);
-    }
-  });
+  cached(`playlist:${id}`, () => fetchInternalPlaylist(id));
 
 export const album = (id: string) =>
-  cached(`album:${id}`, () => spotifyApi.getAlbum(id));
+  cached(`album:${id}`, () => fetchAlbum(id));
 
 export type ArtistPage = {
   artist: SpotifyApi.ArtistObjectFull;
@@ -159,44 +143,12 @@ export type ArtistPage = {
 };
 
 export const artist = (id: string) =>
-  cached<ArtistPage>(`artist:${id}`, async () => {
-    const [artist, top, albums] = await Promise.all([
-      spotifyApi.getArtist(id),
-      spotifyApi.getArtistTopTracks(id, "from_token"),
-      spotifyApi.getArtistAlbums(id, {
-        limit: 50,
-        include_groups: "album,single",
-      }),
-    ]);
-
-    return { artist, topTracks: [...top.tracks], albums: [...albums.items] };
-  });
-
-/**
- * The API wrapper sends the ids as a bare array body, which both library
- * endpoints now answer with a 400 — they want an object. The ids go in the
- * query instead, which they have always accepted and needs no body at all.
- */
-const saveToLibrary = async (
-  kind: "tracks" | "albums",
-  method: "PUT" | "DELETE",
-  ids: string[],
-) => {
-  const response = await fetch(
-    `https://api.spotify.com/v1/me/${kind}?ids=${ids.join(",")}`,
-    {
-      method,
-      headers: { Authorization: `Bearer ${await authModel.ensureToken()}` },
-    },
-  );
-
-  if (!response.ok) throw httpError(`saved ${kind}`, response);
-};
+  cached<ArtistPage>(`artist:${id}`, () => fetchArtist(id));
 
 /** Optimistic: the star flips first, the API call follows. */
 export const toggleLike = async (track: SpotifyApi.TrackObjectFull) => {
-  // local files and episodes carry no track id, and `ids=` is a 400
-  if (!track.id) return;
+  // local files and episodes carry no uri the library would accept
+  if (!track.id || !track.uri) return;
 
   const liked = $likedSongs.get() ?? [];
   const isLiked = liked.some((item) => item.track.id === track.id);
@@ -208,7 +160,7 @@ export const toggleLike = async (track: SpotifyApi.TrackObjectFull) => {
   );
 
   try {
-    await saveToLibrary("tracks", isLiked ? "DELETE" : "PUT", [track.id]);
+    await setInLibrary([track.uri], !isLiked);
   } catch (err) {
     // the star was flipped ahead of the server: put it back rather than lie
     $likedSongs.set(liked);
@@ -223,74 +175,68 @@ export const addToLiked = (track: SpotifyApi.TrackObjectFull) => {
   return toggleLike(track);
 };
 
-export const removeFromPlaylist = async (playlistId: string, uri: string) => {
-  await spotifyApi.removeTracksFromPlaylist(playlistId, [uri]);
+export const removeFromPlaylist = async (playlistId: string, uid: string) => {
+  await removeTracks(`spotify:playlist:${playlistId}`, [uid]);
 
   // the page reads from the cache, so it has to forget the stale copy
   cache.delete(`playlist:${playlistId}`);
   await forget(`playlist:${playlistId}`);
 };
 
-/** Saved albums and followed artists, each a store that checks itself. */
-export const isSavedAlbum = (id: string) => {
+/**
+ * Saved albums and followed artists, each a store that checks itself — and
+ * kept, because a page revisited within a session used to pay for the same
+ * answer again.
+ */
+const libraryChecks = new Map<string, WritableAtom<boolean | null>>();
+
+const checked = (uri: string) => {
+  const hit = libraryChecks.get(uri);
+  if (hit) return hit;
+
   const $saved = atom<boolean | null>(null);
 
   onMount($saved, () =>
-    authModel.whenAuthorized(async () => {
-      const [saved] = await spotifyApi.containsMySavedAlbums([id]);
+    webSession.whenAuthorized(async () => {
+      if ($saved.get() !== null) return;
+
+      const [saved] = await inLibrary([uri]);
       $saved.set(saved);
     }),
   );
 
+  libraryChecks.set(uri, $saved);
   return $saved;
 };
 
-export const toggleSavedAlbum = async (
-  id: string,
+export const isSavedAlbum = (id: string) => checked(`spotify:album:${id}`);
+export const isFollowedArtist = (id: string) => checked(`spotify:artist:${id}`);
+
+const toggleLibrary = async (
+  what: string,
+  uri: string,
   $saved: WritableAtom<boolean | null>,
 ) => {
   const saved = $saved.get();
   $saved.set(!saved);
 
   try {
-    await saveToLibrary("albums", saved ? "DELETE" : "PUT", [id]);
+    await setInLibrary([uri], !saved);
   } catch (err) {
     $saved.set(saved);
-    reportError("save album", err);
+    reportError(what, err);
   }
 };
 
-export const isFollowedArtist = (id: string) => {
-  const $followed = atom<boolean | null>(null);
+export const toggleSavedAlbum = (
+  id: string,
+  $saved: WritableAtom<boolean | null>,
+) => toggleLibrary("save album", `spotify:album:${id}`, $saved);
 
-  onMount($followed, () =>
-    authModel.whenAuthorized(async () => {
-      const [followed] = await spotifyApi.isFollowingArtists([id]);
-      $followed.set(followed);
-    }),
-  );
-
-  return $followed;
-};
-
-export const toggleFollowedArtist = async (
+export const toggleFollowedArtist = (
   id: string,
   $followed: WritableAtom<boolean | null>,
-) => {
-  const followed = $followed.get();
-  $followed.set(!followed);
-
-  try {
-    if (followed) {
-      await spotifyApi.unfollowArtists([id]);
-    } else {
-      await spotifyApi.followArtists([id]);
-    }
-  } catch (err) {
-    $followed.set(followed);
-    reportError("follow artist", err);
-  }
-};
+) => toggleLibrary("follow artist", `spotify:artist:${id}`, $followed);
 
 /** Whether the playlist sits in the user's library — drives the add button. */
 export const isFollowed = (id: string) =>
@@ -299,21 +245,23 @@ export const isFollowed = (id: string) =>
   );
 
 export const followPlaylist = async (id: string) => {
-  await spotifyApi.followPlaylist(id);
+  await setInLibrary([`spotify:playlist:${id}`], true);
 
-  const added = await spotifyApi.getPlaylist(id);
   const playlists = $playlists.get() ?? [];
+  if (playlists.some((item) => item.id === id)) return;
 
-  if (!playlists.some((item) => item.id === id)) {
-    $playlists.set([
-      added as SpotifyApi.PlaylistObjectSimplified,
-      ...playlists,
-    ]);
-  }
+  // the entity is already loaded — the page the button sits on is what fetched it
+  const added = playlist(id).get();
+  if (!added) return;
+
+  $playlists.set([
+    added as unknown as SpotifyApi.PlaylistObjectSimplified,
+    ...playlists,
+  ]);
 };
 
 export const unfollowPlaylist = async (id: string) => {
-  await spotifyApi.unfollowPlaylist(id);
+  await setInLibrary([`spotify:playlist:${id}`], false);
 
   $playlists.set(($playlists.get() ?? []).filter((item) => item.id !== id));
   cache.delete(`playlist:${id}`);

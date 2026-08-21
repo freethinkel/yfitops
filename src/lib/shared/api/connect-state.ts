@@ -21,10 +21,20 @@ export type QueueEntry = {
 
 export type PlayerState = {
   queue_revision: string;
+  /** What the account was left playing with, wherever it was last playing. */
+  options?: {
+    shuffling_context?: boolean;
+    repeating_context?: boolean;
+    repeating_track?: boolean;
+  };
   next_tracks?: QueueEntry[];
   prev_tracks?: QueueEntry[];
   track?: QueueEntry;
   is_playing?: boolean;
+  is_paused?: boolean;
+  /** Milliseconds, as strings — the gateway sends its numbers that way. */
+  position_as_of_timestamp?: string;
+  duration?: string;
 };
 
 export type Cluster = {
@@ -37,50 +47,52 @@ const headers = (accessToken: string) => ({
   "app-platform": "WebPlayer",
 });
 
+/** Connect explains a refusal in the body; the status alone rarely narrows it. */
+const failed = async (what: string, response: Response) =>
+  new Error(`${what}: HTTP ${response.status} ${await response.text()}`.trim());
+
 export const getCluster = async (accessToken: string): Promise<Cluster> => {
   const response = await fetch(`${BASE}/cluster`, {
     headers: headers(accessToken),
   });
 
-  if (!response.ok) throw new Error(`Cluster: HTTP ${response.status}`);
+  if (!response.ok) throw await failed("Cluster", response);
 
   return response.json();
 };
 
 /**
- * Replaces the queue wholesale. `queue_revision` guards against overwriting a
- * change made elsewhere, so it has to come from a fresh cluster read.
+ * Every player command travels the same way — this is also what starts
+ * playback and sets shuffle, so the Web API is not needed for any of it.
  */
-/**
- * Jumps straight to a position in the queue. Plain `skip_next` steps one track;
- * naming the track makes it skip to that one, dropping everything before it.
- */
-export const skipTo = async ({
+export const command = async ({
   accessToken,
   deviceId,
-  uri,
-  uid,
+  endpoint,
+  payload = {},
 }: {
   accessToken: string;
   deviceId: string;
-  uri: string;
-  uid: string;
+  endpoint: string;
+  payload?: Record<string, unknown>;
 }) => {
   const response = await fetch(
     `${BASE}/player/command/from/${SENDER_ID}/to/${deviceId}`,
     {
       method: "POST",
       headers: { ...headers(accessToken), "content-type": "application/json" },
-      body: JSON.stringify({
-        command: { endpoint: "skip_next", track: { uri, uid } },
-      }),
+      body: JSON.stringify({ command: { endpoint, ...payload } }),
     },
   );
 
-  if (!response.ok) throw new Error(`skip_next: HTTP ${response.status}`);
+  if (!response.ok) throw await failed(endpoint, response);
 };
 
-export const setQueue = async ({
+/**
+ * Replaces the queue wholesale. `queue_revision` guards against overwriting a
+ * change made elsewhere, so it has to come from a fresh cluster read.
+ */
+export const setQueue = ({
   accessToken,
   deviceId,
   nextTracks,
@@ -92,22 +104,14 @@ export const setQueue = async ({
   nextTracks: QueueEntry[];
   prevTracks: QueueEntry[];
   revision: string;
-}) => {
-  const response = await fetch(
-    `${BASE}/player/command/from/${SENDER_ID}/to/${deviceId}`,
-    {
-      method: "POST",
-      headers: { ...headers(accessToken), "content-type": "application/json" },
-      body: JSON.stringify({
-        command: {
-          endpoint: "set_queue",
-          next_tracks: nextTracks,
-          prev_tracks: prevTracks,
-          queue_revision: revision,
-        },
-      }),
+}) =>
+  command({
+    accessToken,
+    deviceId,
+    endpoint: "set_queue",
+    payload: {
+      next_tracks: nextTracks,
+      prev_tracks: prevTracks,
+      queue_revision: revision,
     },
-  );
-
-  if (!response.ok) throw new Error(`set_queue: HTTP ${response.status}`);
-};
+  });

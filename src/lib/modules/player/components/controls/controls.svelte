@@ -17,16 +17,18 @@
   >
     <Icon name="shuffle" size={20} />
   </button>
+  <!-- always live: with nothing behind it, the track starts over -->
   <button
     aria-label={$t.previousTrack}
     onclick={() => playerModel.prevTrack()}
-    disabled={!$playerState?.track_window.previous_tracks.length}
+    disabled={!$playerState}
   >
     <Icon name="previous-track" size={24} />
   </button>
   <button
     aria-label={$t.playPause}
     class="play"
+    class:buffering={$playerState?.loading}
     onclick={() => playerModel.togglePlaypause()}
   >
     <Icon name={($playerState?.paused ?? true) ? "play" : "pause"} size={28} />
@@ -85,9 +87,27 @@
         color: var(--color-text);
       }
 
+      /* the track is fetched and decoded but no sound has started yet */
+      &.buffering {
+        animation: buffering 1s ease-in-out infinite;
+      }
+
       &:hover:not(:disabled) {
         color: var(--color-text);
       }
+    }
+  }
+
+  @keyframes buffering {
+    50% {
+      opacity: 0.4;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .controls button.buffering {
+      animation: none;
+      opacity: 0.6;
     }
   }
 

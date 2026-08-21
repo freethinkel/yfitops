@@ -2,7 +2,7 @@
   import { Icon } from "$lib/shared/components/icon";
   import { Avatar } from "$lib/shared/components/avatar";
   import { Button } from "$lib/shared/components/button";
-  import { authModel } from "$lib/modules/auth/model";
+  import { webSession } from "$lib/modules/auth/model";
   import { themeModel } from "$lib/modules/theme/model";
   import { userModel } from "../model";
   import { i18nModel, profileMessages } from "$lib/modules/i18n";
@@ -58,7 +58,7 @@
   <Button
     kind="ghost"
     style="color: var(--color-error)"
-    onclick={() => authModel.logout()}
+    onclick={() => webSession.logout()}
   >
     <Icon name="logout" size={16} />
     {$t.logout}

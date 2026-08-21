@@ -65,7 +65,13 @@ export const fetchBuddyList = async (
     },
   });
 
-  if (!response.ok) throw new Error(`Buddy list: HTTP ${response.status}`);
+  // the body is where this endpoint says what it disliked — a bare status
+  // leaves nothing to act on
+  if (!response.ok) {
+    throw new Error(
+      `Buddy list: HTTP ${response.status} ${await response.text()}`.trim(),
+    );
+  }
 
   const data = (await response.json()) as { friends?: RawFriend[] };
 

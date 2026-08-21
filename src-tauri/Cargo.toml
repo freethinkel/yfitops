@@ -18,8 +18,24 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["macos-private-api", "devtools"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-http = "2.5.9"
+# unsafe-headers: without it the plugin drops `cookie`, `referer` and `origin`
+# as forbidden by the fetch spec — and the whole session rests on sending
+# Spotify's own cookie and posing as its web player
+tauri-plugin-http = { version = "2.5.9", features = ["unsafe-headers"] }
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+
+# playback of our own: no Web Playback SDK, no Widevine, no api.spotify.com.
+# librespot-core is a fork — see vendor/librespot-core/FORK.md
+librespot-core = "0.8"
+librespot-playback = "0.8"
+librespot-connect = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+reqwest = { version = "0.13.4", features = ["json"] }
+env_logger = "0.11.11"
+
+[patch.crates-io]
+librespot-core = { path = "vendor/librespot-core" }
+librespot-playback = { path = "vendor/librespot-playback" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.25.0"

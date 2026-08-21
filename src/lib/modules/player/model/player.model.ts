@@ -1,21 +1,27 @@
 import { atom, computed, onMount } from "nanostores";
-import { authModel, internalSession } from "$lib/modules/auth/model";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { webSession } from "$lib/modules/auth/model";
 import {
   getCluster,
   setQueue,
-  skipTo,
   type QueueEntry,
 } from "$lib/shared/api/connect-state";
 import {
   $likedSongs,
   toggleLike,
 } from "$lib/modules/playlist/model/playlist.model";
-import { spotifyApi } from "$lib/shared/api/spotify";
-import { httpError } from "$lib/shared/api/http-error";
+import { fetchTracks } from "$lib/shared/api/catalog";
+import { webPlayerVersion } from "$lib/shared/api/pathfinder";
 import { getAccentColorFromImage } from "$lib/shared/helpers/color";
 import { reportError } from "$lib/shared/helpers/errors";
-import { loadWebSdk } from "./web-sdk";
 
+/**
+ * Playback happens in Rust now — librespot decodes the stream itself, so
+ * nothing here touches the Web Playback SDK, Widevine or the public Web API.
+ * The shape below is the one the SDK used to report, kept as it was so the
+ * components reading it stay untouched.
+ */
 export const $playerState = atom<Spotify.PlaybackState | null>(null);
 /**
  * Ticks twice a second, so it lives apart from `$playerState` — otherwise every
@@ -24,72 +30,229 @@ export const $playerState = atom<Spotify.PlaybackState | null>(null);
 export const $position = atom(0);
 export const $trackColor = atom("transparent");
 
-let player: Spotify.Player | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let colorSource = "";
 
+/** Connect still addresses the queue by device, and Rust owns that id. */
 let announceDevice!: (id: string) => void;
 let registered = new Promise<string>((resolve) => (announceDevice = resolve));
 
-/**
- * The track list draws itself from cache, so it is clickable long before the
- * SDK has fetched its script and registered a device. Sending the empty id
- * that early is what the Web API answers with a 404, so playback waits for the
- * real one instead. The timeout keeps a player that never arrives — no
- * Premium, no output device — from swallowing the click in silence.
- */
-const DEVICE_TIMEOUT = 10_000;
+const DEVICE_TIMEOUT = 15_000;
 
 const device = () =>
   Promise.race([
     registered,
     new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error("The Spotify player never became ready")),
+        () => reject(new Error("The player never became ready")),
         DEVICE_TIMEOUT,
       ),
     ),
   ]);
 
+const setShuffle = (shuffle: boolean) =>
+  invoke("player_set_shuffle", { shuffle });
+
+const setRepeat = (mode: "off" | "context" | "track") =>
+  invoke("player_set_repeat", { mode });
+
 /**
- * Shuffle and repeat answer 200 with an opaque string where the docs promise
- * an empty 204, and the API wrapper logs a parse failure for every one of
- * them. Going over fetch skips that, and turns a failure into a readable
- * error instead of a bare XMLHttpRequest. Global fetch on purpose — this is
- * the public API, which sends CORS headers; the Tauri plugin is only needed
- * for the internal hosts.
+ * The state we opened onto belongs to Connect, not to our player — it holds no
+ * track, and telling it to play is telling it to play nothing. Claiming the
+ * session is what hands it the track, and Spirc only starts once it has one.
  */
-const playerCommand = async (path: string, params: Record<string, string>) => {
-  const query = new URLSearchParams(params);
-  const response = await fetch(
-    `https://api.spotify.com/v1/me/player/${path}?${query}`,
-    {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${await authModel.ensureToken()}` },
-    },
+let restored: { uris: string[]; position: number } | null = null;
+
+const claimPlayback = async (
+  pending: NonNullable<typeof restored>,
+  from?: string,
+) => {
+  restored = null;
+
+  // skipping before anything has been claimed is still the first load, only
+  // aimed a track further along — and the position belongs to the track that
+  // was on screen, so it goes with nothing else
+  const index = from ? Math.max(0, pending.uris.indexOf(from)) : 0;
+
+  // the same call a click in a playlist makes — Spirc starts on its own, so
+  // there is no play to send after it, and the position goes in with the load
+  // rather than as a seek afterwards, which would be heard as a false start
+  await invoke("player_load_tracks", {
+    uris: pending.uris,
+    index,
+    seekTo: index ? 0 : Math.round(pending.position),
+  });
+};
+
+/**
+ * Which of the two to call is decided here rather than in Spirc: its task
+ * queues commands behind its own network traffic, and the delay is audible.
+ * The state flips optimistically for the same reason.
+ */
+export const togglePlaypause = () => {
+  const state = $playerState.get();
+  if (!state) return;
+
+  const paused = !state.paused;
+
+  patchState({ paused });
+  retick(paused);
+
+  if (!paused && restored) {
+    return claimPlayback(restored).catch((err) =>
+      reportError("player claim", err),
+    );
+  }
+
+  return invoke(paused ? "player_pause" : "player_play").catch((err) =>
+    reportError("player play/pause", err),
   );
-
-  if (!response.ok) throw httpError(`player ${path}`, response);
-};
-
-const setShuffle = (state: boolean, device: string) =>
-  playerCommand("shuffle", { state: String(state), device_id: device });
-
-const setRepeat = (state: "off" | "context" | "track", device: string) =>
-  playerCommand("repeat", { state, device_id: device });
-
-export const togglePlaypause = () => player?.togglePlay();
-export const nextTrack = () => {
-  // whatever was first in the queue is the track now starting
-  const queue = $queue.get();
-  if (queue?.length) optimistic(queue.slice(1));
-
-  player?.nextTrack();
 };
 /**
- * Shuffle and repeat live in the playback state the SDK reports, but only the
- * Web API can change them.
+ * Tracks already played, so stepping back does not have to ask anyone.
+ * Connect reports what comes next but keeps no history of its own.
  */
+const history: QueueTrack[] = [];
+
+/**
+ * A queue entry carries what a 32px row needs and nothing more — its cover is
+ * the smallest size Spotify offers, and the panels that show the current track
+ * ask for the largest. So the real track is used wherever it is already known,
+ * and what is built here is only the stand-in until it is.
+ */
+const asTrack = (item: QueueTrack) => {
+  const known = trackCache.get(item.uri);
+  if (known) return known as unknown as Spotify.Track;
+
+  return {
+    id: item.uri.split(":")[2] ?? "",
+    uri: item.uri,
+    name: item.name,
+    duration_ms: item.durationMs,
+    artists: [{ name: item.artist, uri: "" }],
+    album: { name: "", uri: "", images: [{ url: item.image }] },
+  } as unknown as Spotify.Track;
+};
+
+const asQueueTrackFromState = (state: Spotify.PlaybackState): QueueTrack => {
+  const track = state.track_window.current_track;
+
+  return {
+    uri: track.uri,
+    uid: "",
+    name: track.name,
+    artist: track.artists.map((artist) => artist.name).join(", "),
+    image: track.album.images[0]?.url ?? "",
+    durationMs: state.duration,
+  };
+};
+
+/**
+ * Until the player confirms this uri, events about any other track belong to
+ * what was playing before and would drag the interface back a step.
+ */
+let expected = "";
+let skipTimer: ReturnType<typeof setTimeout> | null = null;
+let expectTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Long enough for the player to fetch the track and report it, short enough
+ * that a wait nobody will end is not one the user sits through.
+ */
+const EXPECT_TIMEOUT_MS = 8_000;
+
+/**
+ * Nothing else may clear this: a jump that fails, or lands on a track the
+ * player skips past unavailable, would otherwise leave it set for good — and
+ * with it set every event is dropped and the interface stops moving at all.
+ */
+const expect = (uri: string) => {
+  expected = uri;
+
+  if (expectTimer) clearTimeout(expectTimer);
+  expectTimer = uri ? setTimeout(() => expect(""), EXPECT_TIMEOUT_MS) : null;
+};
+
+/**
+ * Switching shows the new track at once and sends a single command for the
+ * whole burst — holding the key would otherwise queue one load per press and
+ * the player would spend its time on tracks nobody waits for any more.
+ */
+const skipBy = (delta: number) => {
+  const state = $playerState.get();
+  const queue = [...($queue.get() ?? [])];
+  if (!state) return;
+
+  const current = asQueueTrackFromState(state);
+  const target = delta > 0 ? queue.shift() : history.pop();
+
+  if (!target) {
+    // what the button promises when there is nothing behind, and what every
+    // other player does with it
+    if (delta < 0) seek(0);
+    return;
+  }
+
+  if (delta > 0) history.push(current);
+  else queue.unshift(current);
+
+  expect(target.uri);
+
+  // the track being left behind would otherwise keep playing until the next
+  // one has loaded, which is most of a second of the wrong music
+  invoke("player_halt").catch(() => {});
+
+  $playerState.set({
+    ...state,
+    paused: false,
+    // we know the wait starts here; the player's own loading event never
+    // fires for a track it has already fetched
+    loading: true,
+    position: 0,
+    duration: target.durationMs,
+    track_window: {
+      ...state.track_window,
+      current_track: asTrack(target),
+    },
+  } as Spotify.PlaybackState);
+
+  $position.set(0);
+  $queue.set(queue);
+  retick(false);
+
+  if (skipTimer) clearTimeout(skipTimer);
+
+  skipTimer = setTimeout(() => {
+    skipTimer = null;
+
+    // the state we opened onto is Connect's: our player holds nothing yet, and
+    // a jump against nothing is refused — the claim is what loads the list, so
+    // it is made here with the target named instead
+    const jump = restored
+      ? claimPlayback(restored, expected)
+      : invoke("player_skip_to", { uri: expected });
+
+    jump
+      .then(() => {
+        // the jump makes Spirc rebuild its queue, so the local one has to be
+        // read back — otherwise the two drift apart and the next press picks a
+        // track the player is no longer anywhere near
+        scheduleSync();
+      })
+      .catch((err) => {
+        // nothing is going to confirm a jump that never happened
+        expect("");
+        loadQueue();
+        reportError("player skip", err);
+      });
+  }, SKIP_DEBOUNCE_MS);
+};
+
+/** Long enough to collapse a burst of presses, short enough to feel immediate. */
+const SKIP_DEBOUNCE_MS = 300;
+
+export const nextTrack = () => skipBy(1);
+
 type ToggleKey = "shuffle" | "repeat_mode";
 
 /**
@@ -130,12 +293,12 @@ let toggleChain: Promise<unknown> = Promise.resolve();
 const sendToggle = <T>(
   key: ToggleKey,
   value: boolean | number,
-  send: () => Promise<T>,
+  apply: () => Promise<T>,
 ) => {
   pending.set(key, value);
   patchState({ [key]: value } as Partial<Spotify.PlaybackState>);
 
-  toggleChain = toggleChain.then(send).catch((err) => {
+  toggleChain = toggleChain.then(apply).catch((err) => {
     pending.delete(key);
     reportError(`player ${key}`, err);
   });
@@ -149,9 +312,7 @@ export const toggleShuffle = () => {
 
   const shuffle = !state.shuffle;
 
-  return sendToggle("shuffle", shuffle, async () =>
-    setShuffle(shuffle, await device()),
-  );
+  return sendToggle("shuffle", shuffle, () => setShuffle(shuffle));
 };
 
 /** off → context → track → off, the order the native clients cycle through. */
@@ -159,12 +320,10 @@ export const cycleRepeat = () => {
   const mode = $playerState.get()?.repeat_mode ?? 0;
   const next = (["context", "track", "off"] as const)[mode];
 
-  return sendToggle("repeat_mode", (mode + 1) % 3, async () =>
-    setRepeat(next, await device()),
-  );
+  return sendToggle("repeat_mode", (mode + 1) % 3, () => setRepeat(next));
 };
 
-export const prevTrack = () => player?.previousTrack();
+export const prevTrack = () => skipBy(-1);
 
 export const $currentLiked = computed(
   [$playerState, $likedSongs],
@@ -198,7 +357,10 @@ export const toggleCurrentLike = () => {
 };
 
 export const seek = (position: number) => {
-  player?.seek(position);
+  invoke("player_seek", { positionMs: Math.round(position) }).catch((err) =>
+    reportError("player seek", err),
+  );
+
   $position.set(position);
 };
 
@@ -207,69 +369,72 @@ export const seekBy = (deltaMs: number) => {
   seek(Math.min(Math.max($position.get() + deltaMs, 0), duration));
 };
 
-const startPlayback = (uris: string[], id: string) =>
-  spotifyApi.play({ uris, device_id: id });
+/**
+ * Whatever was played before is behind a different context now: stepping back
+ * into it would ask the player for a track it is nowhere near.
+ */
+const forgetHistory = () => (history.length = 0);
+
+/**
+ * A bare list of tracks — liked songs have no context uri of their own.
+ * Without an index the player picks the starting track itself, which is what
+ * shuffled play wants; a click pins the track it was made on.
+ */
+const startPlayback = (uris: string[], index?: number) => {
+  forgetHistory();
+
+  return invoke("player_load_tracks", { uris, index });
+};
 
 /**
  * Every one of these is called straight from a click handler, so a rejection
  * has nowhere to go and used to vanish — a dead device looked exactly like a
  * click that did nothing at all.
  */
-const withDevice = async (
-  what: string,
-  run: (id: string) => Promise<unknown>,
-) => {
+const withDevice = async (what: string, run: () => Promise<unknown>) => {
   try {
-    await run(await device());
+    await run();
   } catch (err) {
     reportError(`player ${what}`, err);
   }
 };
 
 /**
- * With shuffle on the API picks a random entry from `uris` instead of the
- * first one, so clicking a row started some other track. Shuffle is turned off
- * for the call and put back right after — re-enabling keeps the track that is
- * already playing and only reshuffles what comes next, which is what the
- * native clients do.
+ * The index pins the track the user clicked whatever shuffle is set to, so the
+ * old dance of turning shuffle off around the call — three requests for one
+ * click — is gone.
  */
 export const play = (uris: string[]) =>
-  withDevice("play", async (id) => {
-    const shuffled = $playerState.get()?.shuffle ?? false;
+  withDevice("play", () => startPlayback(uris, 0));
 
-    if (shuffled) await setShuffle(false, id);
-    // the server acks the shuffle change before the device has applied it, so
-    // the call right behind it can still be shuffled — naming the offset pins
-    // the first track whichever way that race lands
-    await spotifyApi.play({ uris, offset: { position: 0 }, device_id: id });
-    if (shuffled) await setShuffle(true, id);
-  });
-
-/** Plays a whole playlist, album or artist by its uri. */
-/** Same for a bare list of tracks — liked songs have no context uri. */
 export const playShuffled = (uris: string[]) =>
-  withDevice("playShuffled", async (id) => {
+  withDevice("playShuffled", async () => {
     patchState({ shuffle: true });
     pending.set("shuffle", true);
 
-    await setShuffle(true, id);
-    await startPlayback(uris, id);
+    await setShuffle(true);
+    await startPlayback(uris);
   });
 
 /** Starts a playlist or album shuffled, the way the native clients do. */
 export const shuffleContext = (uri: string) =>
-  withDevice("shuffleContext", async (id) => {
+  withDevice("shuffleContext", async () => {
     patchState({ shuffle: true });
     pending.set("shuffle", true);
 
-    await setShuffle(true, id);
-    await playContext(uri);
+    await setShuffle(true);
+    await startContext(uri);
   });
 
+/** Plays a whole playlist, album or artist by its uri. */
+const startContext = (uri: string) => {
+  forgetHistory();
+
+  return invoke("player_load_context", { uri });
+};
+
 export const playContext = (uri: string) =>
-  withDevice("playContext", (id) =>
-    spotifyApi.play({ context_uri: uri, device_id: id }),
-  );
+  withDevice("playContext", () => startContext(uri));
 
 export type QueueTrack = {
   uri: string;
@@ -287,7 +452,7 @@ export type QueueTrack = {
 export const $queue = atom<QueueTrack[] | null>(null);
 export const $queueError = atom<string | null>(null);
 
-const token = () => internalSession.ensureToken();
+const token = () => webSession.ensureToken();
 
 type TrackMeta = Pick<QueueTrack, "name" | "artist" | "image" | "durationMs">;
 
@@ -344,30 +509,31 @@ const asQueueTrack = (track: QueueTrack | string): QueueTrack => {
  * in bulk from the Web API.
  */
 const hydrate = async (tracks: QueueTrack[], mine: number) => {
-  const ids = [
+  const uris = [
     ...new Set(
       tracks
         .filter(
           (track) => !track.name && track.uri.startsWith("spotify:track:"),
         )
-        .map((track) => track.uri.split(":")[2]),
+        .map((track) => track.uri),
     ),
   ];
 
-  if (!ids.length) return;
+  if (!uris.length) return;
 
   const found = new Map<string, SpotifyApi.TrackObjectFull>();
 
-  for (let i = 0; i < ids.length; i += 50) {
-    const res = await spotifyApi.getTracks(ids.slice(i, i + 50));
-    for (const track of res.tracks) if (track) found.set(track.id, track);
+  // the same tracks the panels ask for by uri: fetched once, kept for both
+  for (const track of await fetchTracks(uris)) {
+    found.set(track.uri, track);
+    trackCache.set(track.uri, track);
   }
 
   if (mine !== epoch) return;
 
   $queue.set(
     ($queue.get() ?? []).map((track) => {
-      const full = found.get(track.uri.split(":")[2]);
+      const full = found.get(track.uri);
       if (!full || track.name) return track;
 
       return {
@@ -387,7 +553,7 @@ const loadQueue = async () => {
   const accessToken = await token();
 
   if (!accessToken) {
-    $queueError.set("Очередь читается через internal-сессию — включи её");
+    $queueError.set("Очередь читается веб-сессией — войди заново");
     return;
   }
 
@@ -506,20 +672,14 @@ export const playFromQueue = async (track: QueueTrack) => {
 };
 
 const skipToQueued = async (track: QueueTrack) => {
-  const [accessToken, id] = await Promise.all([token(), device()]);
-  if (!accessToken) return;
-
   // skipping to a track drops everything queued ahead of it
   const queue = $queue.get() ?? [];
   const index = queue.indexOf(track);
   if (index >= 0) optimistic(queue.slice(index + 1));
 
-  await skipTo({
-    accessToken,
-    deviceId: id,
-    uri: track.uri,
-    uid: track.uid,
-  });
+  // straight to the player rather than asking Connect to skip for us: that
+  // request travels to the server and back to this very device
+  await invoke("player_skip_to", { uri: track.uri });
 
   scheduleSync();
 };
@@ -532,6 +692,11 @@ onMount($queue, () => {
     if (trackId === current) return;
 
     current = trackId;
+
+    // a switch of our own is still settling: it moved the queue by hand and
+    // re-reads it once the player confirms, so reading it now would only be a
+    // request per press
+    if (expected) return;
 
     // the track that just started is usually the head of the queue: drop it
     // right away instead of waiting for the round trip
@@ -548,185 +713,361 @@ onMount($queue, () => {
   });
 });
 
-const updateTrackColor = async (state: Spotify.PlaybackState) => {
-  const url = state.track_window.current_track.album.images[0]?.url ?? "";
+const updateTrackColor = async (url: string) => {
   if (url === colorSource) return;
 
   colorSource = url;
   $trackColor.set(await getAccentColorFromImage(url));
 };
 
-/**
- * The SDK plays inside a cross-origin iframe, so the system's Now Playing
- * entry belongs to that document — which is why it read "Spotify Embedded"
- * and offered seek keys. media_session.js runs inside it and relays the
- * ⏮/⏭ keys back here; play/pause the webview already handles itself.
- */
-let mediaKeysClaimed = false;
+/** librespot names the track by uri; everything else about it we fetch. */
+const trackCache = new Map<string, SpotifyApi.TrackObjectFull>();
 
-const claimMediaKeys = () => {
-  if (mediaKeysClaimed) return;
-  mediaKeysClaimed = true;
+const trackOf = async (uri: string) => {
+  const hit = trackCache.get(uri);
+  if (hit) return hit;
 
-  window.addEventListener("message", (event) => {
-    if (event.data?.yfitops !== "media-key") return;
+  // `getTrack` knows the name and the length but neither the artists nor the
+  // album; decorating is what fills those in, and the queue needs it anyway
+  const [track] = await fetchTracks([uri]);
+  if (!track) throw new Error(`No metadata for ${uri}`);
 
-    if (event.data.key === "next") nextTrack();
-    else if (event.data.key === "previous") prevTrack();
-  });
+  trackCache.set(uri, track);
+
+  return track;
 };
 
-/** Fills the system entry with the track that is actually playing. */
-const publishNowPlaying = () => {
-  const state = $playerState.get();
-  if (!state) return;
-
-  const track = state.track_window.current_track;
-
-  const message = {
-    yfitops: "now-playing",
-    title: track.name,
-    artist: track.artists.map((artist) => artist.name).join(", "),
-    album: track.album.name,
-    cover: track.album.images[0]?.url ?? "",
-  };
-
-  for (const frame of document.querySelectorAll("iframe")) {
-    frame.contentWindow?.postMessage(message, "*");
-  }
+type PlayerEvent = {
+  kind:
+    | "playing"
+    | "paused"
+    | "stopped"
+    | "loading"
+    | "track"
+    | "seeked"
+    | "position"
+    | "options"
+    | "end";
+  uri?: string;
+  position_ms?: number;
+  shuffle?: boolean;
+  repeat_mode?: number;
 };
 
-/**
- * Spotify keeps the last playback server-side, so nothing has to be stored
- * locally: handing the session to this device without starting it brings the
- * track, its position and the queue back exactly where they stopped. Playback
- * running somewhere else is left alone — taking it over would yank the music
- * off the phone.
- */
-let restored = false;
+/** Position is ticked locally between events; each event resyncs it. */
+const retick = (paused: boolean) => {
+  if (tickTimer) clearInterval(tickTimer);
+  if (paused) return;
 
-const restoreLastSession = async (id: string) => {
-  // only the first `ready` of the session — a reconnect after sleep must not
-  // pull a paused session back off whatever device has it now
-  if (restored) return;
-  restored = true;
+  let lastTick = Date.now();
 
-  try {
-    const state = await spotifyApi.getMyCurrentPlaybackState();
-    if (state?.is_playing) return;
-
-    await spotifyApi.transferMyPlayback([id], { play: false });
-  } catch (err) {
-    reportError("player restore", err);
-  }
+  tickTimer = setInterval(() => {
+    const now = Date.now();
+    $position.set($position.get() + (now - lastTick));
+    lastTick = now;
+  }, 500);
 };
 
-/**
- * `ready` is the only thing that ever sets the device id, so a drop has to be
- * answered or the next click waits forever. But answering it immediately and
- * for ever is how a rate-limited account turns one refusal into a storm: the
- * SDK registers, is turned away, drops, and asks again. Hence the backoff and
- * the ceiling — past it the player stays down until the app restarts, which is
- * the honest outcome when Spotify keeps saying no.
- */
-const RECONNECT_LIMIT = 5;
-const RECONNECT_BASE_MS = 2_000;
+/** Events arrive faster than the metadata each one may need to look up. */
+let eventChain: Promise<unknown> = Promise.resolve();
 
-let attempts = 0;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const applyEvent = async (event: PlayerEvent) => {
+  if (event.kind === "end") return;
 
-const reconnect = (instance: Spotify.Player) => {
-  if (reconnectTimer) return;
+  // no track involved: Spirc saying what it actually has shuffle and repeat
+  // set to. Until now the interface only ever heard its own guess back
+  if (event.kind === "options") {
+    const state = $playerState.get();
+    if (!state) return;
 
-  if (attempts >= RECONNECT_LIMIT) {
-    reportError(
-      "player",
-      new Error(`gave up reconnecting after ${RECONNECT_LIMIT} attempts`),
+    $playerState.set(
+      withPending({
+        ...state,
+        ...(event.shuffle !== undefined && { shuffle: event.shuffle }),
+        ...(event.repeat_mode !== undefined && {
+          repeat_mode: event.repeat_mode,
+        }),
+      } as Spotify.PlaybackState),
     );
+
     return;
   }
 
-  const wait = RECONNECT_BASE_MS * 2 ** attempts;
-  attempts++;
+  const previous = $playerState.get();
+  const uri = event.uri ?? previous?.track_window.current_track.uri ?? "";
+  if (!uri) return;
 
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    instance.connect().catch((err) => reportError("player reconnect", err));
-  }, wait);
-};
-
-const addListeners = (player: Spotify.Player) => {
-  player.addListener("ready", (event) => {
-    attempts = 0;
-    announceDevice(event.device_id);
-    claimMediaKeys();
-    restoreLastSession(event.device_id);
-  });
-
-  // the device goes away on sleep or when another client takes over; without
-  // this the next click would reach for an id the server no longer knows
-  player.addListener("not_ready", () => {
-    registered = new Promise((resolve) => (announceDevice = resolve));
-    reconnect(player);
-  });
-
-  // the SDK's own dealer socket drops on sleep and network changes, and it
-  // reconnects on its own — but when that reconnect fails for good, these are
-  // the only trace of why. account_error is the common one: no Premium.
-  for (const event of [
-    "initialization_error",
-    "authentication_error",
-    "account_error",
-    "playback_error",
-  ] as const) {
-    player.addListener(event, ({ message }) => {
-      // the first three end playback for good — no Premium, a dead token, a
-      // player that never came up — and the user has to be told. A playback
-      // error is usually one track the CDN refused, and the SDK moves on
-      if (event === "playback_error")
-        console.error(`player ${event}:`, message);
-      else reportError(`player ${event}`, new Error(message));
-    });
+  // a switch is in flight: everything the player still says about the track
+  // being left behind would only pull the interface back to it
+  if (expected) {
+    if (uri !== expected) return;
+    expect("");
   }
 
-  // ponytail: position is ticked locally between SDK events, each event resyncs it
-  player.addListener("player_state_changed", (event) => {
-    $playerState.set(withPending(event));
-    $position.set(event.position);
-    updateTrackColor(event);
-    publishNowPlaying();
+  const changed = uri !== previous?.track_window.current_track.uri;
 
-    if (tickTimer) clearInterval(tickTimer);
-    if (event.paused) return;
+  // a skip puts the stand-in on screen before the player confirms anything,
+  // and the confirmation names the track already showing — so without this the
+  // panels keep the queue's thumbnail and the accent colour for the whole
+  // track. Once fetched it is a cache hit, not a request
+  const standIn = !previous?.track_window.current_track.album?.name;
+  const track = changed || standIn ? await trackOf(uri) : null;
+  const paused = event.kind === "paused" || event.kind === "stopped";
 
-    let lastTick = Date.now();
-    tickTimer = setInterval(() => {
-      const now = Date.now();
-      $position.set($position.get() + (now - lastTick));
-      lastTick = now;
-    }, 500);
+  const current = (track ??
+    previous?.track_window.current_track) as Spotify.Track;
+
+  const state = {
+    ...previous,
+    paused,
+    // the field the SDK used to report: fetched and decoded, but no sound yet.
+    // Anything that reports a position means sound is out, so the wait is over
+    loading: event.kind === "loading",
+    // a track event carries no position, and the one the previous track was
+    // at is the one thing it certainly is not
+    position: event.position_ms ?? (changed ? 0 : (previous?.position ?? 0)),
+    duration: track?.duration_ms ?? previous?.duration ?? 0,
+    shuffle: previous?.shuffle ?? false,
+    repeat_mode: previous?.repeat_mode ?? 0,
+    // the SDK reported the neighbours too; librespot does not, and the queue
+    // panel is where that information lives now
+    track_window: {
+      current_track: current,
+      previous_tracks: [],
+      next_tracks: [],
+    },
+  } as unknown as Spotify.PlaybackState;
+
+  $playerState.set(withPending(state));
+
+  restored = null;
+
+  if (event.position_ms !== undefined) $position.set(event.position_ms);
+
+  if (track) updateTrackColor(track.album.images[0]?.url ?? "");
+
+  publishNowPlaying(state);
+  retick(paused);
+};
+
+/**
+ * The system panel doubles as our claim on the media keys: macOS hands them to
+ * whichever app reports that it is playing something.
+ */
+const publishNowPlaying = (state: Spotify.PlaybackState) => {
+  const track = state.track_window.current_track;
+
+  invoke("media_publish", {
+    title: track?.name ?? "",
+    artist: (track?.artists ?? []).map((artist) => artist.name).join(", "),
+    album: track?.album?.name ?? "",
+    durationMs: state.duration ?? 0,
+    positionMs: state.position ?? 0,
+    playing: !state.paused,
+  }).catch(() => {});
+};
+
+/** librespot starts as soon as anything observes the player state. */
+let starting = false;
+
+/** Long enough that a dropped connection is not hammered while it recovers. */
+const RESTART_DELAY_MS = 2_000;
+
+/**
+ * Opens onto whatever the account is playing rather than an empty player.
+ * The cluster names the track by uri and decorates it only when the device
+ * that was playing bothered to, so the metadata is fetched like anywhere else.
+ */
+const restoreState = async () => {
+  if ($playerState.get()) return;
+
+  const cluster = await getCluster(await webSession.ensureToken());
+  const state = cluster.player_state;
+  const uri = state?.track?.uri;
+
+  if (!uri) return;
+
+  const track = await trackOf(uri);
+  const position = Number(state?.position_as_of_timestamp ?? 0) || 0;
+
+  // whatever the account was left playing with — our player starts with both
+  // off, so they are pushed into it as well or the first load would clear them
+  const shuffle = state?.options?.shuffling_context ?? false;
+  const repeat = state?.options?.repeating_track
+    ? 2
+    : state?.options?.repeating_context
+      ? 1
+      : 0;
+
+  if (shuffle)
+    setShuffle(true).catch((err) => reportError("player shuffle", err));
+  if (repeat) {
+    setRepeat(repeat === 2 ? "track" : "context").catch((err) =>
+      reportError("player repeat", err),
+    );
+  }
+
+  const playback = {
+    paused: !state?.is_playing || state?.is_paused === true,
+    loading: false,
+    position,
+    duration: track.duration_ms || Number(state?.duration ?? 0) || 0,
+    shuffle,
+    repeat_mode: repeat,
+    track_window: {
+      current_track: track,
+      previous_tracks: [],
+      next_tracks: [],
+    },
+  } as unknown as Spotify.PlaybackState;
+
+  $playerState.set(playback);
+  $position.set(position);
+
+  // our player holds nothing yet — this is what the first press loads, and the
+  // rest of the queue comes along so it does not stop after the one track
+  restored = {
+    uris: [uri, ...(state?.next_tracks ?? []).map((entry) => entry.uri)].filter(
+      (candidate) => candidate.startsWith("spotify:track:"),
+    ),
+    position,
+  };
+
+  updateTrackColor(track.album.images[0]?.url ?? "");
+  publishNowPlaying(playback);
+};
+
+/** librespot serves its cached token until the lifetime it was given runs out. */
+const secondsLeft = (expiresAt: number) =>
+  Math.max(1, Math.round((expiresAt - Date.now()) / 1000));
+
+/** The token the running session was last given, so it is not handed twice. */
+let handed = "";
+
+/**
+ * The session outlives the token it started on, and librespot has no way of
+ * fetching another — ours was issued to the web player, which is exactly what
+ * login5 refuses. So every renewal is pushed in as it is issued; without it
+ * metadata, CDN urls and audio keys all start answering 401 within the hour.
+ */
+const handToken = ({
+  accessToken,
+  expiresAt,
+}: {
+  accessToken: string;
+  expiresAt: number;
+}) => {
+  handed = accessToken;
+
+  return invoke("player_set_token", {
+    token: accessToken,
+    expiresIn: secondsLeft(expiresAt),
+  }).catch((err) => {
+    // nothing to hand it to yet: `start` passes the current one itself
+    if (String(err).includes("session is not running")) return;
+
+    reportError("player token", err);
   });
 };
 
-/** The Web Playback SDK connects as soon as the player state is observed. */
-onMount($playerState, () =>
-  authModel.whenAuthorized(async () => {
-    if (player) return;
+const start = async () => {
+  const token = await webSession.ensureToken();
+  const expiresAt = webSession.$token.get()?.expiresAt ?? Date.now();
 
-    window.onSpotifyWebPlaybackSDKReady = async () => {
-      const instance = new window.Spotify.Player({
-        name: "Yfitops",
-        getOAuthToken: (cb) => authModel.ensureToken().then(cb),
-        volume: 1,
-      });
+  handed = token;
 
-      // listeners first: `ready` fires right after connect, and attaching
-      // afterwards can miss it — leaving the device id empty for good
-      addListeners(instance);
-      await instance.connect();
-      player = instance;
-    };
+  const id = await invoke<string>("player_start", {
+    token,
+    expiresIn: secondsLeft(expiresAt),
+    // librespot asks for the client token under this, and a stale one is
+    // refused — the bundle names the version the web player is actually on
+    version: webPlayerVersion(),
+    name: "Yfitops",
+  });
 
-    await loadWebSdk();
-  }),
-);
+  announceDevice(id);
+
+  // after the device exists, so a cluster read sees this session too
+  await restoreState().catch((err) => reportError("player restore", err));
+};
+
+const onMediaKey = (key: string) => {
+  const paused = $playerState.get()?.paused;
+
+  if (key === "next") nextTrack();
+  else if (key === "previous") prevTrack();
+  else if (key === "toggle") togglePlaypause();
+  else if (key === "play" && paused) togglePlaypause();
+  else if (key === "pause" && !paused) togglePlaypause();
+};
+
+onMount($playerState, () => {
+  // both listeners have to come off with the store, or a remount leaves the
+  // old ones in place — every event then arrives twice and one press skips
+  // two tracks
+  const listeners: Promise<UnlistenFn>[] = [];
+
+  const stopToken = webSession.$token.subscribe((fresh) => {
+    if (fresh && fresh.accessToken !== handed) handToken(fresh);
+  });
+
+  const stop = webSession.whenAuthorized(async () => {
+    if (starting) return;
+    starting = true;
+
+    listeners.push(
+      listen<PlayerEvent>("player-event", ({ payload }) => {
+        // one at a time: each handler reads the state the previous one left,
+        // and two of them in flight apply in whichever order their metadata
+        // lookups happen to finish
+        eventChain = eventChain
+          .then(() => applyEvent(payload))
+          .catch((err) => reportError("player event", err));
+      }),
+      // the keys land in Rust and come back here, so a press runs exactly what
+      // a click on the same button runs
+      listen<string>("media-key", ({ payload }) => onMediaKey(payload)),
+      // the access point drops the session eventually; without a fresh one
+      // every button stays dead until the app is restarted
+      listen("player-gone", () => {
+        registered = new Promise((resolve) => (announceDevice = resolve));
+
+        // the session that replaces this one starts empty, and `restoreState`
+        // steps aside as long as there is a state on screen — without this the
+        // transport buttons reach an idle Spirc and do nothing at all
+        const state = $playerState.get();
+
+        if (state) {
+          restored = {
+            uris: [
+              state.track_window.current_track.uri,
+              ...($queue.get() ?? []).map((track) => track.uri),
+            ].filter((uri) => uri?.startsWith("spotify:track:")),
+            position: $position.get(),
+          };
+        }
+
+        setTimeout(
+          () => start().catch((err) => reportError("player restart", err)),
+          RESTART_DELAY_MS,
+        );
+      }),
+    );
+
+    try {
+      await start();
+    } catch (err) {
+      starting = false;
+      throw err;
+    }
+  });
+
+  return () => {
+    listeners.forEach((pending) => pending.then((off) => off()));
+    listeners.length = 0;
+    starting = false;
+    handed = "";
+    stopToken();
+    stop();
+  };
+});

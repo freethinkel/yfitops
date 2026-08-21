@@ -1,0 +1,278 @@
+import { atom, onMount } from "nanostores";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { fetch } from "@tauri-apps/plugin-http";
+import { totp } from "$lib/shared/api/totp";
+import { refreshBundleMeta } from "$lib/shared/api/pathfinder";
+import { reportError } from "$lib/shared/helpers/errors";
+
+/**
+ * Exactly the session the web player runs on: the `sp_dc` cookie in exchange
+ * for an hour-long token. There is no client id of our own here at all —
+ * neither the public Web API quota nor a dependency on somebody else's app.
+ */
+const TOKEN_URL = "https://open.spotify.com/api/token";
+const EARLY_MS = 60_000;
+const HOUR_MS = 3_600_000;
+
+type Token = { accessToken: string; expiresAt: number };
+
+let token: Token | null = null;
+let inflight: Promise<string> | null = null;
+
+export const $isAuthorized = atom(false);
+/**
+ * Every freshly issued token lands here. librespot holds one of its own and
+ * has no way of knowing it has lapsed, so whoever owns the session watches
+ * this and hands the new one over.
+ */
+export const $token = atom<Token | null>(null);
+export const $isPending = atom(false);
+export const $error = atom<string | null>(null);
+
+const COOKIE_KEY = "sp_dc";
+
+/**
+ * The webview loses the cookie between launches, and losing it means signing in
+ * again every time the app opens — so it is kept here as well. The webview stays
+ * the source of truth while it has one; this only covers the next start.
+ */
+const loginCookie = async () => {
+  // the webview still holds the cookie for a moment after the logout page has
+  // been asked to drop it, and writing it back would undo the sign-out
+  if (signingOut) return null;
+
+  const fromWebview = await invoke<string | null>("spotify_cookie");
+
+  if (fromWebview) {
+    localStorage.setItem(COOKIE_KEY, fromWebview);
+    return fromWebview;
+  }
+
+  return localStorage.getItem(COOKIE_KEY);
+};
+
+const withPending = async (action: () => Promise<void>) => {
+  $isPending.set(true);
+  $error.set(null);
+
+  try {
+    await action();
+  } catch (err) {
+    $error.set(err instanceof Error ? err.message : String(err));
+  } finally {
+    $isPending.set(false);
+  }
+};
+
+const request = async (
+  reason: "init" | "transport",
+  cookie: string,
+): Promise<Token> => {
+  const { code, version } = await totp();
+
+  const query = new URLSearchParams({
+    reason,
+    productType: "web-player",
+    totp: code,
+    totpServer: code,
+    totpVer: String(version),
+  });
+
+  const response = await fetch(`${TOKEN_URL}?${query}`, {
+    headers: {
+      accept: "application/json",
+      referer: "https://open.spotify.com/",
+      "app-platform": "WebPlayer",
+      cookie: `sp_dc=${cookie}`,
+    },
+  });
+
+  const data = await response.json();
+
+  if (!data?.accessToken) {
+    throw new Error(`Токен не выдан: ${data?.message ?? response.status}`);
+  }
+
+  // The endpoint answers a visitor it does not recognise with a working but
+  // anonymous token: public data goes through, anything under /me comes back
+  // as "User is not authorized" much later and far away from here.
+  if (data.isAnonymous) {
+    throw new Error("Cookie входа не признана — выдан анонимный токен");
+  }
+
+  return {
+    accessToken: data.accessToken,
+    expiresAt:
+      Number(data.accessTokenExpirationTimestampMs) || Date.now() + HOUR_MS,
+  };
+};
+
+export const ensureToken = (): Promise<string> => {
+  if (token && token.expiresAt - EARLY_MS > Date.now()) {
+    return Promise.resolve(token.accessToken);
+  }
+
+  inflight ??= (async () => {
+    const cookie = await loginCookie();
+
+    // no cookie is not a failure — it is simply nobody signed in yet
+    if (!cookie) {
+      $isAuthorized.set(false);
+      return "";
+    }
+
+    const reason = token ? "transport" : "init";
+
+    try {
+      const fresh = await request(reason, cookie).catch(async (err) => {
+        // a stale secret and a stale login differ only by the text of the
+        // answer, and the first one fixes itself — the bundle is re-read and
+        // the code recomputed from the version that comes with it
+        if (!/totp/i.test(String(err))) throw err;
+
+        await refreshBundleMeta();
+        return request("init", cookie);
+      });
+
+      // a sign-out that started while this was in flight has already cleared
+      // everything; resolving now would sign the user straight back in
+      if (signingOut) return "";
+
+      token = fresh;
+      $token.set(fresh);
+      $isAuthorized.set(true);
+      $error.set(null);
+
+      return fresh.accessToken;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      $error.set(message);
+      $isAuthorized.set(false);
+      console.error("web session:", message);
+
+      return "";
+    }
+  })().finally(() => {
+    inflight = null;
+  });
+
+  return inflight;
+};
+
+const LOGIN_URL =
+  "https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2F";
+const LOGOUT_URL = "https://www.spotify.com/logout/";
+const LANDED = "https://open.spotify.com";
+const AUTH_WINDOW = "oauth_window";
+
+/**
+ * No OAuth and no client id of our own: the user signs in on Spotify's own
+ * form exactly as they would in a browser, and the cookie it leaves behind is
+ * the whole credential. Landing back on the player means it worked.
+ */
+const inWindow = async (url: string, done: (url: string) => boolean) => {
+  const off: UnlistenFn[] = [];
+  let settle!: (reached: boolean) => void;
+  // closing the window by hand has to end this too, or the promise never
+  // settles and the button it was called from stays spinning for good
+  const landed = new Promise<boolean>((resolve) => (settle = resolve));
+
+  const finish = (reached: boolean) => {
+    off.forEach((stop) => stop());
+    off.length = 0;
+    settle(reached);
+  };
+
+  // before the window exists, not after: logging out is a redirect off
+  // `/logout` within a couple of hundred milliseconds, and a listener
+  // registered in that gap never hears the one navigation it waits for
+  off.push(
+    await listen(
+      "change_navigation_url",
+      ({ payload }: { payload: { url: string } }) => {
+        if (!done(payload.url)) return;
+
+        finish(true);
+        new WebviewWindow(AUTH_WINDOW).close();
+      },
+    ),
+  );
+
+  try {
+    await invoke("create_auth_window", {
+      uri: url,
+      label: AUTH_WINDOW,
+      title: "Spotify",
+    });
+  } catch (err) {
+    finish(false);
+    throw err;
+  }
+
+  new WebviewWindow(AUTH_WINDOW)
+    .onCloseRequested(() => finish(false))
+    .then((stop) => off.push(stop));
+
+  return landed;
+};
+
+export const login = () =>
+  withPending(async () => {
+    // walked away from the form — not something to report as a failure
+    if (!(await inWindow(LOGIN_URL, (url) => url.startsWith(LANDED)))) return;
+
+    await ensureToken();
+
+    if (!$isAuthorized.get()) throw new Error($error.get() ?? "Вход не удался");
+  });
+
+let signingOut = false;
+
+/**
+ * Signing out has to happen on Spotify's side: the cookie is theirs, and there
+ * is no way to drop it from here.
+ */
+export const logout = () =>
+  withPending(async () => {
+    signingOut = true;
+    token = null;
+    $token.set(null);
+    localStorage.removeItem(COOKIE_KEY);
+    $isAuthorized.set(false);
+
+    try {
+      await inWindow(LOGOUT_URL, (url) => !url.includes("/logout"));
+    } finally {
+      signingOut = false;
+    }
+  });
+
+// through `withPending` on purpose: the app layout sends anyone who is neither
+// authorised nor pending back to the login page, and restoring a saved session
+// takes a moment — without this the window flashes the form on every launch
+onMount($isAuthorized, () => {
+  withPending(async () => {
+    await ensureToken();
+  });
+});
+
+/** The same contract `createSession` offers, so dependent stores stay as they are. */
+export const whenAuthorized = (load: () => void | Promise<void>) => {
+  let loaded = false;
+
+  return $isAuthorized.subscribe(async (authorized) => {
+    if (!authorized || loaded) return;
+    loaded = true;
+
+    try {
+      await load();
+    } catch (err) {
+      loaded = false;
+      // `$error` only ever surfaces on the login screen, so a store that fails
+      // to load once looked like a page that simply had nothing in it
+      reportError("load", err);
+    }
+  });
+};
