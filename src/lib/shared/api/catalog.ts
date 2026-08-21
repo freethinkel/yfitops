@@ -18,11 +18,12 @@ const DECORATE_HASH =
 
 /**
  * Search does not ship in the player's main bundle — it lives in the chunk the
- * search route loads. Left empty deliberately: the first query answers
- * `PersistedQueryNotFound`, and the transport then picks the hash out of that
- * chunk by name. Hardcoding one would only go stale on the next release.
+ * search route loads, which is what `SEARCH_CHUNK` is for. This one is only
+ * the head start: an unknown hash is answered with a bare 412 "Invalid query
+ * hash", and reading it out of the chunk costs the bundle and the chunk both.
  */
-const SEARCH_HASH = "";
+const SEARCH_HASH =
+  "db61238974d27839a136c9dc02bfdbe3fab7635f21cf85976ebff9a1ee281345";
 const SEARCH_CHUNK = "xpui-routes-search";
 
 const PROFILE_URL =

@@ -348,29 +348,47 @@ export const pathfinderQuery = async <T>({
 
     if (error || !response.ok) {
       const message = error?.message ?? data?.error?.message ?? response.status;
+
       throw Object.assign(new Error(`${operationName}: ${message}`), {
-        stale: String(error?.extensions?.code ?? error?.message ?? "").includes(
-          "PersistedQueryNotFound",
-        ),
+        // The gateway has two ways of saying it does not know the hash: the
+        // documented one, and a bare 412 "Invalid query hash" for anything it
+        // cannot even look up — an operation that lives in a route chunk and
+        // has no fallback here starts out as exactly that.
+        stale:
+          response.status === 412 ||
+          String(error?.extensions?.code ?? error?.message ?? "").includes(
+            "PersistedQueryNotFound",
+          ),
       });
     }
 
     return data.data as T;
   };
 
+  /** Where the hash comes from once the one at hand turns out not to work. */
+  const fresh = async () => {
+    const meta = await refreshBundleMeta();
+
+    return (
+      meta.hashes[operationName] ??
+      (chunk ? await fetchFromChunk(meta, chunk, operationName) : null)
+    );
+  };
+
   // deliberately not `bundleMeta()`: the fallback hash is good until the
   // gateway says otherwise, and awaiting the bundle here would spend a few
   // megabytes before the very first query of a fresh install
+  const known = readMeta()?.hashes[operationName] || fallbackHash;
+
   try {
-    return await send(readMeta()?.hashes[operationName] ?? fallbackHash);
+    // no hash at all is not worth a round trip: the gateway can only answer
+    // that it is invalid, which is what the bundle is read for anyway
+    return await send(known || ((await fresh()) ?? ""));
   } catch (err) {
-    if (!(err as { stale?: boolean }).stale) throw err;
+    if (!known || !(err as { stale?: boolean }).stale) throw err;
 
     // A new web player build shipped — pick the fresh hash up and retry once.
-    const fresh = await refreshBundleMeta();
-    const hash =
-      fresh.hashes[operationName] ??
-      (chunk ? await fetchFromChunk(fresh, chunk, operationName) : null);
+    const hash = await fresh();
 
     if (!hash) throw err;
 
