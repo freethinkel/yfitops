@@ -12,7 +12,15 @@ const CLIENT_TOKEN_URL = "https://clienttoken.spotify.com/v1/clienttoken";
 
 /** The web player's own id — the gateway rejects requests from unknown ones. */
 const WEB_PLAYER_CLIENT_ID = "d8a5ed958d274c2e8ee717e6a4b0971d";
-const WEB_PLAYER_VERSION = "1.2.98.104.ga2fc9a0c-development";
+/**
+ * Only until the bundle has been read once — its filename carries the real
+ * version, and everything that reports one takes it from there instead. The
+ * gateway does check: a version far enough behind is refused.
+ */
+const WEB_PLAYER_VERSION_FALLBACK = "1.2.98.104.ga2fc9a0c-development";
+
+export const webPlayerVersion = () =>
+  readMeta()?.version || WEB_PLAYER_VERSION_FALLBACK;
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
@@ -84,7 +92,7 @@ const getClientToken = async () => {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
       client_data: {
-        client_version: WEB_PLAYER_VERSION,
+        client_version: webPlayerVersion(),
         client_id: WEB_PLAYER_CLIENT_ID,
         js_sdk_data: {
           device_brand: "Apple",
@@ -295,7 +303,7 @@ export const pathfinderQuery = async <T>({
           "client-token": await getClientToken(),
           "content-type": "application/json;charset=UTF-8",
           "app-platform": "WebPlayer",
-          "spotify-app-version": WEB_PLAYER_VERSION,
+          "spotify-app-version": webPlayerVersion(),
           "accept-language": "en",
           // The gateway answers 403 without a browser's origin and agent.
           origin: "https://open.spotify.com",

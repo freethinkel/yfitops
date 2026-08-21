@@ -15,12 +15,19 @@ const mutate = async (
   operationName: string,
   fallbackHash: string,
   variables: Record<string, unknown>,
+  /**
+   * Everything below ships in the main bundle today, so nothing passes this.
+   * Without it, though, a mutation that moves into a route chunk could not be
+   * recovered at all — the queries have had the same escape all along.
+   */
+  chunk?: string,
 ) =>
   pathfinderQuery<Record<string, unknown>>({
     operationName,
     fallbackHash,
     accessToken: await webSession.ensureToken(),
     variables,
+    chunk,
   });
 
 /** Tracks, albums, artists and playlists are all one library here. */

@@ -26,7 +26,10 @@ use tauri::{AppHandle, Emitter, Manager};
 /// `src/lib/shared/api/pathfinder.ts`.
 const CLIENT_ID: &str = "d8a5ed958d274c2e8ee717e6a4b0971d";
 const CLIENT_TOKEN_URL: &str = "https://clienttoken.spotify.com/v1/clienttoken";
-const WEB_PLAYER_VERSION: &str = "1.2.98.104.ga2fc9a0c-development";
+/// Only until the frontend has read the bundle once — see `webPlayerVersion`
+/// in `src/lib/shared/api/pathfinder.ts`, which is where the real one comes
+/// from. clienttoken refuses a version far enough behind.
+const WEB_PLAYER_VERSION_FALLBACK: &str = "1.2.98.104.ga2fc9a0c-development";
 
 /// Port 4070 is filtered on some networks; 443 always answers.
 const AP_PORT: u16 = 443;
@@ -109,10 +112,10 @@ fn token_of(access_token: String, ttl: Duration) -> Token {
 /// librespot asks for this one with a protobuf describing a native client,
 /// which our client id refuses. The JSON form of the same endpoint takes the
 /// browser profile the app already uses, so we fetch it and hand it over.
-async fn fetch_client_token(device_id: &str) -> Result<String, String> {
+async fn fetch_client_token(device_id: &str, version: &str) -> Result<String, String> {
     let body = serde_json::json!({
         "client_data": {
-            "client_version": WEB_PLAYER_VERSION,
+            "client_version": version,
             "client_id": CLIENT_ID,
             "js_sdk_data": {
                 "device_brand": "Apple",
@@ -152,6 +155,7 @@ pub async fn player_start(
     app: AppHandle,
     token: String,
     expires_in: u64,
+    version: String,
     name: String,
 ) -> Result<String, String> {
     let generation = {
@@ -186,7 +190,15 @@ pub async fn player_start(
     let session = Session::new(config, Some(cache));
     let device_id = session.device_id().to_string();
 
-    let client_token = fetch_client_token(&device_id).await?;
+    let client_token = fetch_client_token(
+        &device_id,
+        if version.is_empty() {
+            WEB_PLAYER_VERSION_FALLBACK
+        } else {
+            &version
+        },
+    )
+    .await?;
     session
         .spclient()
         .set_client_token(token_of(client_token, CLIENT_TOKEN_TTL));

@@ -12,6 +12,7 @@ import {
   toggleLike,
 } from "$lib/modules/playlist/model/playlist.model";
 import { fetchTracks } from "$lib/shared/api/catalog";
+import { webPlayerVersion } from "$lib/shared/api/pathfinder";
 import { getAccentColorFromImage } from "$lib/shared/helpers/color";
 import { reportError } from "$lib/shared/helpers/errors";
 
@@ -978,6 +979,9 @@ const start = async () => {
   const id = await invoke<string>("player_start", {
     token,
     expiresIn: secondsLeft(expiresAt),
+    // librespot asks for the client token under this, and a stale one is
+    // refused — the bundle names the version the web player is actually on
+    version: webPlayerVersion(),
     name: "Yfitops",
   });
 
