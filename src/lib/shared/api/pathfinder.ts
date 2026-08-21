@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { fetch } from "@tauri-apps/plugin-http";
 
 /**
@@ -27,7 +28,6 @@ const USER_AGENT =
 
 const DEVICE_ID_KEY = "pathfinder_device_id";
 const META_KEY = "web-player-meta";
-const WEB_PLAYER_URL = "https://open.spotify.com/";
 const CDN = "https://open.spotifycdn.com/cdn/build/web-player";
 
 const deviceId = () => {
@@ -219,111 +219,38 @@ const readMeta = (): BundleMeta | null => {
   }
 };
 
-const idMap = (source: string, re: RegExp) =>
-  Object.fromEntries(
-    [...(source.match(re)?.[1] ?? "").matchAll(/"?(\d+)"?:"([^"]+)"/g)].map(
-      ([, id, value]) => [id, value],
-    ),
-  );
-
-const parseBundle = (source: string): Omit<BundleMeta, "version"> => {
-  const hashes: Record<string, string> = {};
-
-  for (const [, name, hash] of source.matchAll(
-    /\.l\("([a-zA-Z0-9_]+)","(?:query|mutation)","([0-9a-f]{64})"/g,
-  )) {
-    hashes[name] = hash;
-  }
-
-  const secretBlock = source.match(
-    /\[\{secret:(?:'[^']*'|"(?:[^"\\]|\\.)*"),version:\d+\}(?:,\{secret:(?:'[^']*'|"(?:[^"\\]|\\.)*"),version:\d+\})*\]/,
-  );
-
-  const secrets = [
-    ...(secretBlock?.[0] ?? "").matchAll(
-      /\{secret:('[^']*'|"(?:[^"\\]|\\.)*"),version:(\d+)\}/g,
-    ),
-  ].map(([, raw, version]) => ({
-    secret: JSON.parse(
-      raw.startsWith("'") ? JSON.stringify(raw.slice(1, -1)) : raw,
-    ) as string,
-    version: Number(version),
-  }));
-
-  return {
-    hashes,
-    secrets,
-    chunks: idMap(source, /\.u=e=>""\+\(\{([^}]+)\}/),
-    chunkHashes: idMap(source, /\)\[e\]\|\|e\)\+"\."\+\(?\{([^}]+)\}/),
-  };
-};
-
-/**
- * The bundle's filename carries a content hash, not a version — the page
- * states the version itself, in the base64 config it hands the player.
- */
-const versionOf = (html: string) => {
-  try {
-    const config = html.match(/id="appServerConfig"[^>]*>([^<]+)</)?.[1] ?? "";
-
-    return (JSON.parse(atob(config)).clientVersion as string) || "";
-  } catch {
-    return "";
-  }
-};
-
 let loading: Promise<BundleMeta> | null = null;
 
 /**
- * The player's main bundle carries every persisted query hash, the TOTP
- * secrets and the chunk maps at once, so one pass over it replaces what used
- * to be a separate multi-megabyte download per operation. A stale hash
- * usually breaks several calls at the same moment — hence the shared promise,
- * or each of them would fetch the same bundle in parallel.
+ * Rust reads the bundle: it is a few megabytes to keep a few hundred bytes of,
+ * and the http plugin hands a body to the webview in chunks — some five
+ * hundred round trips through the IPC for a file nothing else ever looks at.
+ *
+ * A stale hash usually breaks several calls at the same moment — hence the
+ * shared promise, or each of them would ask for the same bundle in parallel.
  */
 export const refreshBundleMeta = (): Promise<BundleMeta> => {
   loading ??= (async () => {
+    const started = Date.now();
+
     try {
-      const html = await read(
-        "web player page",
-        WEB_PLAYER_URL,
-        { headers: { "user-agent": USER_AGENT } },
-        TIMEOUT,
-        (page) => page.text(),
-      );
+      const meta = await invoke<BundleMeta>("web_player_meta");
 
-      const version = versionOf(html);
+      trace("web player meta", started, `${meta.secrets.length} secrets`);
 
-      const bundleUrl = html.match(
-        /https:\/\/open\.spotifycdn\.com\/cdn\/build\/web-player\/web-player\.[\w-]+\.js/,
-      )?.[0];
-
-      if (!bundleUrl) throw new Error("Web player bundle not found");
-
-      // a few megabytes over IPC, so it gets a longer leash than the rest
-      const bundle = await read(
-        "web player bundle",
-        bundleUrl,
-        { headers: { "user-agent": USER_AGENT } },
-        BUNDLE_TIMEOUT,
-        (response) => response.text(),
-      );
-
-      const meta: BundleMeta = {
-        ...parseBundle(bundle),
-        // never empty: a meta without a version is dropped on read, and one
-        // dropped on every read sends the whole bundle down again each time
-        version: version || WEB_PLAYER_VERSION_FALLBACK,
-      };
-
-      if (!Object.keys(meta.hashes).length) {
-        throw new Error("No persisted queries in the bundle");
+      if (!meta.version) {
+        console.warn("web player page: no client version on it");
       }
 
-      if (!version) console.warn("web player page: no client version on it");
+      // never empty: a meta without a version is dropped on read, and one
+      // dropped on every read sends the whole bundle down again each time
+      meta.version ||= WEB_PLAYER_VERSION_FALLBACK;
 
       localStorage.setItem(META_KEY, JSON.stringify(meta));
       return meta;
+    } catch (err) {
+      trace("web player meta", started, String(err));
+      throw err;
     } finally {
       loading = null;
     }

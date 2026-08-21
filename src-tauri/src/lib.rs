@@ -7,6 +7,7 @@ mod media_keys;
 #[cfg(target_os = "macos")]
 mod notification;
 mod player;
+mod web_player;
 #[cfg(target_os = "macos")]
 mod window_decorations;
 
@@ -156,7 +157,8 @@ pub fn run() {
             player::player_load_context,
             player::player_load_tracks,
             hide_window_buttons,
-            toggle_devtools
+            toggle_devtools,
+            web_player::web_player_meta
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

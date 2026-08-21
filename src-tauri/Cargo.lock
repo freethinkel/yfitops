@@ -7450,6 +7450,7 @@ dependencies = [
 name = "yfitops"
 version = "0.3.1"
 dependencies = [
+ "base64 0.22.1",
  "block",
  "cocoa",
  "env_logger",
@@ -7458,6 +7459,7 @@ dependencies = [
  "librespot-playback",
  "objc",
  "objc_exception",
+ "regex",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
