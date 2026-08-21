@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 
 mod cookies;
-mod player;
 #[cfg(target_os = "macos")]
 mod media_keys;
 #[cfg(target_os = "macos")]
 mod notification;
+mod player;
 #[cfg(target_os = "macos")]
 mod window_decorations;
 
@@ -20,7 +20,12 @@ pub struct OnNavigationPayload {
 }
 
 #[tauri::command]
-fn create_auth_window(app: AppHandle, uri: String, label: String, title: String) -> Result<(), String> {
+fn create_auth_window(
+    app: AppHandle,
+    uri: String,
+    label: String,
+    title: String,
+) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(&label) {
         window.show().map_err(|err| err.to_string())?;
         return Ok(());

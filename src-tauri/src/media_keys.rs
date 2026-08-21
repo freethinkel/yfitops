@@ -121,7 +121,8 @@ fn publish(
         let _: () = msg_send![info, setObject: string(album) forKey: album_key];
         let _: () = msg_send![info, setObject: number(duration_ms / 1000.0) forKey: duration_key];
         let _: () = msg_send![info, setObject: number(position_ms / 1000.0) forKey: elapsed_key];
-        let _: () = msg_send![info, setObject: number(if playing { 1.0 } else { 0.0 }) forKey: rate_key];
+        let _: () =
+            msg_send![info, setObject: number(if playing { 1.0 } else { 0.0 }) forKey: rate_key];
 
         let center: id = msg_send![class!(MPNowPlayingInfoCenter), defaultCenter];
         let _: () = msg_send![center, setNowPlayingInfo: info];

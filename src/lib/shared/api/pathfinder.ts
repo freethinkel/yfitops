@@ -13,9 +13,10 @@ const CLIENT_TOKEN_URL = "https://clienttoken.spotify.com/v1/clienttoken";
 /** The web player's own id — the gateway rejects requests from unknown ones. */
 const WEB_PLAYER_CLIENT_ID = "d8a5ed958d274c2e8ee717e6a4b0971d";
 /**
- * Only until the bundle has been read once — its filename carries the real
- * version, and everything that reports one takes it from there instead. The
- * gateway does check: a version far enough behind is refused.
+ * Only until the player's page has been read once — it states the real version
+ * in its config, and everything that reports one takes it from there instead.
+ * The gateway does check: a version far enough behind is refused, and one that
+ * is not a version at all is refused outright.
  */
 const WEB_PLAYER_VERSION_FALLBACK = "1.2.98.104.ga2fc9a0c-development";
 
@@ -79,6 +80,49 @@ const request = async (
   }
 };
 
+/**
+ * The headers are in before the body is: it crosses the IPC in chunks of its
+ * own, so a torn stream fails apart from the request that carried it and
+ * arrives as a bare decode error — or, once WebKit has had it, as a parse
+ * error with nothing in it about which leg it was.
+ *
+ * One retry, because a truncated body is a hiccup rather than an answer and
+ * every leg here asks the same question twice without consequence.
+ */
+const read = async <T>(
+  leg: string,
+  url: string,
+  init: RequestInit,
+  ms: number,
+  parse: (response: Response) => Promise<T>,
+): Promise<T> => {
+  let last: unknown;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await request(leg, url, init, ms);
+
+    try {
+      return await parse(response);
+    } catch (err) {
+      last = err;
+    }
+  }
+
+  const reason = last instanceof Error ? last.message : String(last);
+  throw new Error(`${leg} body (${url.split("/")[2]}): ${reason}`);
+};
+
+/**
+ * Keeps the response next to the body, for the legs that read its status. An
+ * empty body is an answer too — a rejected client token is a 400 with nothing
+ * in it, and parsing that only replaces the status with a parse error.
+ */
+const asJson = async (response: Response) => {
+  const text = await response.text();
+
+  return { response, data: text ? JSON.parse(text) : null };
+};
+
 let clientToken: { token: string; expiresAt: number } | null = null;
 
 /** Granted without any user credentials, and good for a fortnight. */
@@ -87,26 +131,33 @@ const getClientToken = async () => {
     return clientToken.token;
   }
 
-  const response = await request("client-token", CLIENT_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
-      client_data: {
-        client_version: webPlayerVersion(),
-        client_id: WEB_PLAYER_CLIENT_ID,
-        js_sdk_data: {
-          device_brand: "Apple",
-          device_model: "unknown",
-          os: "macos",
-          os_version: "10.15.7",
-          device_id: deviceId(),
-          device_type: "computer",
-        },
+  const { response, data } = await read(
+    "client-token",
+    CLIENT_TOKEN_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
       },
-    }),
-  });
-
-  const data = await response.json();
+      body: JSON.stringify({
+        client_data: {
+          client_version: webPlayerVersion(),
+          client_id: WEB_PLAYER_CLIENT_ID,
+          js_sdk_data: {
+            device_brand: "Apple",
+            device_model: "unknown",
+            os: "macos",
+            os_version: "10.15.7",
+            device_id: deviceId(),
+            device_type: "computer",
+          },
+        },
+      }),
+    },
+    TIMEOUT,
+    asJson,
+  );
   const granted = data?.granted_token;
 
   if (!granted?.token) {
@@ -131,6 +182,7 @@ export type BundleMeta = {
   chunks: Record<string, string>;
   /** Chunk id → the content hash part of its filename. */
   chunkHashes: Record<string, string>;
+  /** The player's own client version, as its page states it. */
   version: string;
 };
 
@@ -140,8 +192,12 @@ const readMeta = (): BundleMeta | null => {
       localStorage.getItem(META_KEY) ?? "null",
     ) as BundleMeta | null;
 
-    // an entry written before this shape existed is worth no more than none
-    return meta?.hashes && meta.secrets ? meta : null;
+    // an entry written before this shape existed is worth no more than none,
+    // and neither is one carrying something that is not a version: clienttoken
+    // answers those with a 400 and an empty body, which stops playback
+    return meta?.hashes && meta.secrets && /^\d+\.\d+\./.test(meta.version)
+      ? meta
+      : null;
   } catch {
     return null;
   }
@@ -186,6 +242,20 @@ const parseBundle = (source: string): Omit<BundleMeta, "version"> => {
   };
 };
 
+/**
+ * The bundle's filename carries a content hash, not a version — the page
+ * states the version itself, in the base64 config it hands the player.
+ */
+const versionOf = (html: string) => {
+  try {
+    const config = html.match(/id="appServerConfig"[^>]*>([^<]+)</)?.[1] ?? "";
+
+    return (JSON.parse(atob(config)).clientVersion as string) || "";
+  } catch {
+    return "";
+  }
+};
+
 let loading: Promise<BundleMeta> | null = null;
 
 /**
@@ -198,10 +268,15 @@ let loading: Promise<BundleMeta> | null = null;
 export const refreshBundleMeta = (): Promise<BundleMeta> => {
   loading ??= (async () => {
     try {
-      const page = await request("web player page", WEB_PLAYER_URL, {
-        headers: { "user-agent": USER_AGENT },
-      });
-      const html = await page.text();
+      const html = await read(
+        "web player page",
+        WEB_PLAYER_URL,
+        { headers: { "user-agent": USER_AGENT } },
+        TIMEOUT,
+        (page) => page.text(),
+      );
+
+      const version = versionOf(html);
 
       const bundleUrl = html.match(
         /https:\/\/open\.spotifycdn\.com\/cdn\/build\/web-player\/web-player\.[\w-]+\.js/,
@@ -210,21 +285,24 @@ export const refreshBundleMeta = (): Promise<BundleMeta> => {
       if (!bundleUrl) throw new Error("Web player bundle not found");
 
       // a few megabytes over IPC, so it gets a longer leash than the rest
-      const bundle = await request(
+      const bundle = await read(
         "web player bundle",
         bundleUrl,
         { headers: { "user-agent": USER_AGENT } },
         BUNDLE_TIMEOUT,
+        (response) => response.text(),
       );
 
       const meta: BundleMeta = {
-        ...parseBundle(await bundle.text()),
-        version: bundleUrl.split(".").at(-2) ?? "",
+        ...parseBundle(bundle),
+        version,
       };
 
       if (!Object.keys(meta.hashes).length) {
         throw new Error("No persisted queries in the bundle");
       }
+
+      if (!meta.version) throw new Error("No client version on the page");
 
       localStorage.setItem(META_KEY, JSON.stringify(meta));
       return meta;
@@ -254,14 +332,15 @@ const fetchFromChunk = async (
 
   if (!contentHash) throw new Error(`No chunk ${chunk} in the bundle`);
 
-  const response = await request(
+  const source = await read(
     `chunk ${chunk}`,
     `${CDN}/${chunk}.${contentHash}.js`,
     { headers: { "user-agent": USER_AGENT } },
     BUNDLE_TIMEOUT,
+    (response) => response.text(),
   );
 
-  const hash = (await response.text()).match(
+  const hash = source.match(
     new RegExp(
       `\\.l\\("${operationName}","(?:query|mutation)","([0-9a-f]{64})"`,
     ),
@@ -293,7 +372,7 @@ export const pathfinderQuery = async <T>({
   chunk,
 }: Query): Promise<T> => {
   const send = async (sha256Hash: string) => {
-    const response = await request(
+    const { response, data } = await read(
       `${operationName} query`,
       PATHFINDER_URL,
       {
@@ -317,9 +396,9 @@ export const pathfinderQuery = async <T>({
         }),
       },
       QUERY_TIMEOUT,
+      asJson,
     );
 
-    const data = await response.json();
     const error = data?.errors?.[0];
 
     if (error || !response.ok) {

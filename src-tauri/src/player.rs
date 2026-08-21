@@ -26,9 +26,10 @@ use tauri::{AppHandle, Emitter, Manager};
 /// `src/lib/shared/api/pathfinder.ts`.
 const CLIENT_ID: &str = "d8a5ed958d274c2e8ee717e6a4b0971d";
 const CLIENT_TOKEN_URL: &str = "https://clienttoken.spotify.com/v1/clienttoken";
-/// Only until the frontend has read the bundle once — see `webPlayerVersion`
-/// in `src/lib/shared/api/pathfinder.ts`, which is where the real one comes
-/// from. clienttoken refuses a version far enough behind.
+/// Only until the frontend has read the player's page once — see
+/// `webPlayerVersion` in `src/lib/shared/api/pathfinder.ts`, which is where the
+/// real one comes from. clienttoken refuses a version far enough behind, and
+/// answers something that is not a version with a 400 and an empty body.
 const WEB_PLAYER_VERSION_FALLBACK: &str = "1.2.98.104.ga2fc9a0c-development";
 
 /// Port 4070 is filtered on some networks; 443 always answers.
@@ -128,16 +129,20 @@ async fn fetch_client_token(device_id: &str, version: &str) -> Result<String, St
         }
     });
 
-    let response: serde_json::Value = reqwest::Client::new()
+    let answer = reqwest::Client::new()
         .post(CLIENT_TOKEN_URL)
         .header("accept", "application/json")
         .json(&body)
         .send()
         .await
-        .map_err(|err| err.to_string())?
-        .json()
-        .await
         .map_err(|err| err.to_string())?;
+
+    // a refusal comes back empty, and parsing that would say only that the
+    // body could not be decoded — the status is the whole of what it tells us
+    let status = answer.status();
+    let body = answer.text().await.map_err(|err| err.to_string())?;
+    let response: serde_json::Value =
+        serde_json::from_str(&body).map_err(|_| format!("client token refused: {status}"))?;
 
     response["granted_token"]["token"]
         .as_str()
@@ -224,9 +229,12 @@ pub async fn player_start(
     let volume = mixer.get_soft_volume();
     let backend = audio_backend::find(None).ok_or("no audio backend")?;
 
-    let player = Player::new(PlayerConfig::default(), session.clone(), volume, move || {
-        backend(None, AudioFormat::default())
-    });
+    let player = Player::new(
+        PlayerConfig::default(),
+        session.clone(),
+        volume,
+        move || backend(None, AudioFormat::default()),
+    );
 
     let mut events = player.get_player_event_channel();
     let emitter = app.clone();
@@ -378,7 +386,10 @@ fn to_payload(event: &librespot_playback::player::PlayerEvent) -> Option<PlayerE
     })
 }
 
-fn with_spirc<T>(app: &AppHandle, run: impl FnOnce(&Spirc) -> Result<T, librespot_core::Error>) -> Result<T, String> {
+fn with_spirc<T>(
+    app: &AppHandle,
+    run: impl FnOnce(&Spirc) -> Result<T, librespot_core::Error>,
+) -> Result<T, String> {
     let handle = app.state::<PlayerHandle>();
     let guard = handle.0.lock().unwrap();
     let spirc = guard.as_ref().ok_or("spirc is not running")?;
@@ -390,10 +401,7 @@ fn with_spirc<T>(app: &AppHandle, run: impl FnOnce(&Spirc) -> Result<T, librespo
 /// queue together with its network chatter, so a pause could sit behind a
 /// `connect-state` request and arrive audibly late. Spirc keeps up either way —
 /// it tracks playback by the player's own events.
-fn with_player(
-    app: &AppHandle,
-    run: impl FnOnce(&Player),
-) -> Result<(), String> {
+fn with_player(app: &AppHandle, run: impl FnOnce(&Player)) -> Result<(), String> {
     let handle = app.state::<PlayerHandle>();
     let guard = handle.1.lock().unwrap();
     let player = guard.as_ref().ok_or("player is not running")?;
@@ -438,7 +446,6 @@ pub fn player_halt(app: AppHandle) -> Result<(), String> {
 pub fn player_seek(app: AppHandle, position_ms: u32) -> Result<(), String> {
     with_player(&app, |player| player.seek(position_ms))
 }
-
 
 /// Remembered as well as sent: Spirc ignores every command while the device
 /// is still passive, and a load resets what it does accept — so what the
