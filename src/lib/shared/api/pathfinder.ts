@@ -295,14 +295,16 @@ export const refreshBundleMeta = (): Promise<BundleMeta> => {
 
       const meta: BundleMeta = {
         ...parseBundle(bundle),
-        version,
+        // never empty: a meta without a version is dropped on read, and one
+        // dropped on every read sends the whole bundle down again each time
+        version: version || WEB_PLAYER_VERSION_FALLBACK,
       };
 
       if (!Object.keys(meta.hashes).length) {
         throw new Error("No persisted queries in the bundle");
       }
 
-      if (!meta.version) throw new Error("No client version on the page");
+      if (!version) console.warn("web player page: no client version on it");
 
       localStorage.setItem(META_KEY, JSON.stringify(meta));
       return meta;
