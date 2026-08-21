@@ -374,8 +374,12 @@ export const seekBy = (deltaMs: number) => {
  */
 const forgetHistory = () => (history.length = 0);
 
-/** A bare list of tracks — liked songs have no context uri of their own. */
-const startPlayback = (uris: string[], index = 0) => {
+/**
+ * A bare list of tracks — liked songs have no context uri of their own.
+ * Without an index the player picks the starting track itself, which is what
+ * shuffled play wants; a click pins the track it was made on.
+ */
+const startPlayback = (uris: string[], index?: number) => {
   forgetHistory();
 
   return invoke("player_load_tracks", { uris, index });
@@ -400,7 +404,7 @@ const withDevice = async (what: string, run: () => Promise<unknown>) => {
  * click — is gone.
  */
 export const play = (uris: string[]) =>
-  withDevice("play", () => startPlayback(uris));
+  withDevice("play", () => startPlayback(uris, 0));
 
 export const playShuffled = (uris: string[]) =>
   withDevice("playShuffled", async () => {
@@ -741,9 +745,12 @@ type PlayerEvent = {
     | "track"
     | "seeked"
     | "position"
+    | "options"
     | "end";
   uri?: string;
   position_ms?: number;
+  shuffle?: boolean;
+  repeat_mode?: number;
 };
 
 /** Position is ticked locally between events; each event resyncs it. */
@@ -765,6 +772,25 @@ let eventChain: Promise<unknown> = Promise.resolve();
 
 const applyEvent = async (event: PlayerEvent) => {
   if (event.kind === "end") return;
+
+  // no track involved: Spirc saying what it actually has shuffle and repeat
+  // set to. Until now the interface only ever heard its own guess back
+  if (event.kind === "options") {
+    const state = $playerState.get();
+    if (!state) return;
+
+    $playerState.set(
+      withPending({
+        ...state,
+        ...(event.shuffle !== undefined && { shuffle: event.shuffle }),
+        ...(event.repeat_mode !== undefined && {
+          repeat_mode: event.repeat_mode,
+        }),
+      } as Spotify.PlaybackState),
+    );
+
+    return;
+  }
 
   const previous = $playerState.get();
   const uri = event.uri ?? previous?.track_window.current_track.uri ?? "";
@@ -863,13 +889,30 @@ const restoreState = async () => {
   const track = await trackOf(uri);
   const position = Number(state?.position_as_of_timestamp ?? 0) || 0;
 
+  // whatever the account was left playing with — our player starts with both
+  // off, so they are pushed into it as well or the first load would clear them
+  const shuffle = state?.options?.shuffling_context ?? false;
+  const repeat = state?.options?.repeating_track
+    ? 2
+    : state?.options?.repeating_context
+      ? 1
+      : 0;
+
+  if (shuffle)
+    setShuffle(true).catch((err) => reportError("player shuffle", err));
+  if (repeat) {
+    setRepeat(repeat === 2 ? "track" : "context").catch((err) =>
+      reportError("player repeat", err),
+    );
+  }
+
   const playback = {
     paused: !state?.is_playing || state?.is_paused === true,
     loading: false,
     position,
     duration: track.duration_ms || Number(state?.duration ?? 0) || 0,
-    shuffle: false,
-    repeat_mode: 0,
+    shuffle,
+    repeat_mode: repeat,
     track_window: {
       current_track: track,
       previous_tracks: [],

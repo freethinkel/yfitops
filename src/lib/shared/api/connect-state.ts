@@ -21,6 +21,12 @@ export type QueueEntry = {
 
 export type PlayerState = {
   queue_revision: string;
+  /** What the account was left playing with, wherever it was last playing. */
+  options?: {
+    shuffling_context?: boolean;
+    repeating_context?: boolean;
+    repeating_track?: boolean;
+  };
   next_tracks?: QueueEntry[];
   prev_tracks?: QueueEntry[];
   track?: QueueEntry;

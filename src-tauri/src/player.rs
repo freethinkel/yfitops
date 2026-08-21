@@ -6,7 +6,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use librespot_connect::{ConnectConfig, LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
+use librespot_connect::{
+    ConnectConfig, LoadContextOptions, LoadRequest, LoadRequestOptions, Options as ContextOptions,
+    PlayingTrack, Spirc,
+};
 use librespot_core::{
     authentication::Credentials, cache::Cache, config::SessionConfig, token::Token, Session,
 };
@@ -37,6 +40,32 @@ enum Loaded {
     Context(String),
 }
 
+/// What the interface has shuffle and repeat set to. Spirc resets both on
+/// every load — `handle_load` starts with `reset_options`, and only the
+/// options that arrive with the request put them back — so each load has to
+/// carry them along or a skip would quietly turn shuffle off.
+#[derive(Default, Clone, Copy)]
+struct PlayOptions {
+    shuffle: bool,
+    repeat: bool,
+    repeat_track: bool,
+}
+
+impl PlayOptions {
+    fn load(&self, track: Option<PlayingTrack>, seek_to: u32) -> LoadRequestOptions {
+        LoadRequestOptions {
+            start_playing: true,
+            playing_track: track,
+            seek_to,
+            context_options: Some(LoadContextOptions::Options(ContextOptions {
+                shuffle: self.shuffle,
+                repeat: self.repeat,
+                repeat_track: self.repeat_track,
+            })),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct PlayerHandle(
     Mutex<Option<Spirc>>,
@@ -49,6 +78,7 @@ pub struct PlayerHandle(
     /// Kept so a renewed access token can be handed over without building a
     /// new session around it.
     Mutex<Option<Session>>,
+    Mutex<PlayOptions>,
 );
 
 #[derive(Serialize, Clone)]
@@ -58,6 +88,12 @@ struct PlayerEventPayload {
     uri: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     position_ms: Option<u32>,
+    /// Only on "options": what Spirc has shuffle and repeat set to. Everything
+    /// else leaves them out, and the interface keeps what it had.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shuffle: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repeat_mode: Option<u8>,
 }
 
 fn token_of(access_token: String, ttl: Duration) -> Token {
@@ -292,6 +328,32 @@ fn to_payload(event: &librespot_playback::player::PlayerEvent) -> Option<PlayerE
             ..
         } => ("position", Some(track_id.to_uri()), Some(*position_ms)),
         EndOfTrack { .. } => ("end", None, None),
+        // Spirc is the one that knows: a load resets both, a transfer brings
+        // somebody else's settings along, and the interface guessed until now
+        ShuffleChanged { shuffle } => {
+            return Some(PlayerEventPayload {
+                kind: "options".to_string(),
+                uri: None,
+                position_ms: None,
+                shuffle: Some(*shuffle),
+                repeat_mode: None,
+            })
+        }
+        RepeatChanged { context, track } => {
+            return Some(PlayerEventPayload {
+                kind: "options".to_string(),
+                uri: None,
+                position_ms: None,
+                shuffle: None,
+                repeat_mode: Some(if *track {
+                    2
+                } else if *context {
+                    1
+                } else {
+                    0
+                }),
+            })
+        }
         _ => return None,
     };
 
@@ -299,6 +361,8 @@ fn to_payload(event: &librespot_playback::player::PlayerEvent) -> Option<PlayerE
         kind: kind.to_string(),
         uri: uri.and_then(|uri| uri.ok()),
         position_ms,
+        shuffle: None,
+        repeat_mode: None,
     })
 }
 
@@ -364,14 +428,27 @@ pub fn player_seek(app: AppHandle, position_ms: u32) -> Result<(), String> {
 }
 
 
+/// Remembered as well as sent: Spirc ignores every command while the device
+/// is still passive, and a load resets what it does accept — so what the
+/// interface asked for has to survive both, and it does that here.
 #[tauri::command]
 pub fn player_set_shuffle(app: AppHandle, shuffle: bool) -> Result<(), String> {
+    app.state::<PlayerHandle>().5.lock().unwrap().shuffle = shuffle;
+
     with_spirc(&app, |spirc| spirc.shuffle(shuffle))
 }
 
 /// "off" | "context" | "track" — the three states the UI cycles through.
 #[tauri::command]
 pub fn player_set_repeat(app: AppHandle, mode: String) -> Result<(), String> {
+    {
+        let handle = app.state::<PlayerHandle>();
+        let mut options = handle.5.lock().unwrap();
+
+        options.repeat_track = mode == "track";
+        options.repeat = mode == "context";
+    }
+
     with_spirc(&app, |spirc| {
         spirc.repeat_track(mode == "track")?;
         spirc.repeat(mode == "context")
@@ -386,13 +463,12 @@ fn activated(spirc: &Spirc) -> Result<(), librespot_core::Error> {
     spirc.activate()
 }
 
-fn options_for(track: Option<PlayingTrack>, seek_to: u32) -> LoadRequestOptions {
-    LoadRequestOptions {
-        start_playing: true,
-        playing_track: track,
-        seek_to,
-        ..Default::default()
-    }
+fn options_for(app: &AppHandle, track: Option<PlayingTrack>, seek_to: u32) -> LoadRequestOptions {
+    app.state::<PlayerHandle>()
+        .5
+        .lock()
+        .unwrap()
+        .load(track, seek_to)
 }
 
 fn remember(app: &AppHandle, loaded: Loaded) {
@@ -406,7 +482,7 @@ pub fn player_load_context(app: AppHandle, uri: String, index: Option<u32>) -> R
         activated(spirc)?;
         spirc.load(LoadRequest::from_context_uri(
             uri.clone(),
-            options_for(index.map(PlayingTrack::Index), 0),
+            options_for(&app, index.map(PlayingTrack::Index), 0),
         ))
     })?;
 
@@ -427,7 +503,7 @@ pub fn player_load_tracks(
         activated(spirc)?;
         spirc.load(LoadRequest::from_tracks(
             uris.clone(),
-            options_for(index.map(PlayingTrack::Index), seek_to.unwrap_or(0)),
+            options_for(&app, index.map(PlayingTrack::Index), seek_to.unwrap_or(0)),
         ))
     })?;
 
@@ -439,24 +515,56 @@ pub fn player_load_tracks(
 /// Jumps to a track already in the queue. Spirc has no command for it, so what
 /// was loaded is loaded again with that track named as the starting point —
 /// which is instant, unlike asking Connect to skip for us.
+///
+/// With shuffle on this re-randomises what comes after: a load starts with
+/// `reset_context`, which drops the shuffle seed, and the shuffle that follows
+/// draws a new one. The right track still plays and the queue panel re-reads
+/// the new order, so nothing lies — the order just does not hold still. Fixing
+/// it means either forking `librespot-connect` to keep the seed, or stepping
+/// with `Spirc::next`/`prev` instead of reloading, which carries its own rule
+/// about what "previous" means over three seconds in.
 #[tauri::command]
 pub fn player_skip_to(app: AppHandle, uri: String) -> Result<(), String> {
     let handle = app.state::<PlayerHandle>();
     let guard = handle.2.lock().unwrap();
 
+    let options = options_for(&app, Some(PlayingTrack::Uri(uri)), 0);
+
     let request = match guard.as_ref().ok_or("nothing is loaded")? {
-        Loaded::Tracks(uris) => LoadRequest::from_tracks(
-            uris.clone(),
-            options_for(Some(PlayingTrack::Uri(uri)), 0),
-        ),
-        Loaded::Context(context) => LoadRequest::from_context_uri(
-            context.clone(),
-            options_for(Some(PlayingTrack::Uri(uri)), 0),
-        ),
+        Loaded::Tracks(uris) => LoadRequest::from_tracks(uris.clone(), options),
+        Loaded::Context(context) => LoadRequest::from_context_uri(context.clone(), options),
     };
 
     with_spirc(&app, |spirc| {
         activated(spirc)?;
         spirc.load(request)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Spirc resets shuffle and repeat at the start of every load, so a load
+    /// that says nothing about them turns both off — and since a skip is a
+    /// load, shuffle used to last exactly until the next track.
+    #[test]
+    fn a_load_carries_shuffle_and_repeat() {
+        let options = PlayOptions {
+            shuffle: true,
+            repeat: true,
+            repeat_track: false,
+        };
+
+        let request = options.load(Some(PlayingTrack::Index(3)), 0);
+
+        match request.context_options {
+            Some(LoadContextOptions::Options(carried)) => {
+                assert!(carried.shuffle);
+                assert!(carried.repeat);
+                assert!(!carried.repeat_track);
+            }
+            other => panic!("the load says nothing about shuffle: {other:?}"),
+        }
+    }
 }
