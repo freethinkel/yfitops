@@ -15,6 +15,7 @@ import { fetchTracks } from "$lib/shared/api/catalog";
 import { webPlayerVersion } from "$lib/shared/api/pathfinder";
 import { getAccentColorFromImage } from "$lib/shared/helpers/color";
 import { reportError } from "$lib/shared/helpers/errors";
+import { coverUrl } from "$lib/shared/helpers/url";
 
 /**
  * Playback happens in Rust now — librespot decodes the stream itself, so
@@ -83,6 +84,13 @@ const claimPlayback = async (
     seekTo: index ? 0 : Math.round(pending.position),
   });
 };
+
+/** The queue as it stands on screen, current track first. */
+const queueSnapshot = () =>
+  [
+    $playerState.get()?.track_window.current_track.uri,
+    ...($queue.get() ?? []).map((track) => track.uri),
+  ].filter((uri): uri is string => !!uri?.startsWith("spotify:track:"));
 
 /**
  * Which of the two to call is decided here rather than in Spirc: its task
@@ -240,6 +248,18 @@ const skipBy = (delta: number) => {
         scheduleSync();
       })
       .catch((err) => {
+        // the player holds nothing to jump within — the queue on screen is what
+        // it should have been holding, so it is loaded from the target instead
+        if (String(err).includes("nothing is loaded")) {
+          return claimPlayback({ uris: queueSnapshot(), position: 0 })
+            .then(() => scheduleSync())
+            .catch((retryErr) => {
+              expect("");
+              loadQueue();
+              reportError("player skip", retryErr);
+            });
+        }
+
         // nothing is going to confirm a jump that never happened
         expect("");
         loadQueue();
@@ -471,7 +491,7 @@ const toTrack = (entry: QueueEntry): QueueTrack => {
   const fromCluster: TrackMeta = {
     name: entry.metadata?.title ?? "",
     artist: entry.metadata?.artist_name ?? "",
-    image: entry.metadata?.image_url ?? "",
+    image: coverUrl(entry.metadata?.image_url ?? ""),
     durationMs: Number(entry.metadata?.duration ?? 0) || 0,
   };
 
@@ -1038,13 +1058,7 @@ onMount($playerState, () => {
         const state = $playerState.get();
 
         if (state) {
-          restored = {
-            uris: [
-              state.track_window.current_track.uri,
-              ...($queue.get() ?? []).map((track) => track.uri),
-            ].filter((uri) => uri?.startsWith("spotify:track:")),
-            position: $position.get(),
-          };
+          restored = { uris: queueSnapshot(), position: $position.get() };
         }
 
         setTimeout(
