@@ -1,6 +1,7 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { pathfinderQuery } from "./pathfinder";
 import { webSession } from "$lib/modules/auth/model";
+import { coverUrl } from "$lib/shared/helpers/url";
 // type-only on purpose: these live in stores that import this file back, and a
 // value import would close the cycle at runtime
 import type { ArtistPage } from "$lib/modules/playlist/model/playlist.model";
@@ -351,7 +352,7 @@ export const fetchUser = async (id: string): Promise<UserPage> => {
     profile: {
       id,
       display_name: data.name ?? "",
-      images: data.image_url ? [{ url: data.image_url }] : [],
+      images: data.image_url ? [{ url: coverUrl(data.image_url) }] : [],
     } as unknown as SpotifyApi.UserProfileResponse,
     playlists: (data.public_playlists ?? []).map(
       (playlist) =>
@@ -359,7 +360,9 @@ export const fetchUser = async (id: string): Promise<UserPage> => {
           id: idOf(playlist.uri),
           uri: playlist.uri ?? "",
           name: playlist.name ?? "",
-          images: playlist.image_url ? [{ url: playlist.image_url }] : [],
+          images: playlist.image_url
+            ? [{ url: coverUrl(playlist.image_url) }]
+            : [],
           owner: { display_name: playlist.owner_name ?? "" },
         }) as unknown as SpotifyApi.PlaylistObjectSimplified,
     ),

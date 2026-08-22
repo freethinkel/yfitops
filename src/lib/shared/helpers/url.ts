@@ -17,3 +17,9 @@ export const buildUrl = (url: string, queryParams: Record<string, unknown>) => {
 
   return uri;
 };
+
+/** spclient and Connect hand cover art as a uri; only the CDN form loads in an img. */
+export const coverUrl = (url: string) =>
+  url.startsWith("spotify:image:")
+    ? `https://i.scdn.co/image/${url.slice("spotify:image:".length)}`
+    : url;

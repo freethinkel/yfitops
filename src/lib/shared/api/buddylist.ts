@@ -1,3 +1,4 @@
+import { coverUrl } from "$lib/shared/helpers/url";
 import { fetch } from "@tauri-apps/plugin-http";
 
 /**
@@ -43,9 +44,9 @@ const toFriend = (raw: RawFriend): Friend | null => {
   return {
     id,
     name: raw.user?.name ?? "",
-    avatar: raw.user?.imageUrl ?? "",
+    avatar: coverUrl(raw.user?.imageUrl ?? ""),
     playedAt: raw.timestamp ?? 0,
-    cover: raw.track.imageUrl ?? "",
+    cover: coverUrl(raw.track.imageUrl ?? ""),
     track: raw.track.name,
     albumUri: raw.track.album?.uri ?? "",
     artist: raw.track.artist?.name ?? "",
