@@ -860,7 +860,13 @@ const applyEvent = async (event: PlayerEvent) => {
 
   $playerState.set(withPending(state));
 
-  restored = null;
+  // a stop leaves the player holding nothing, and a phone taking playback over
+  // stops it the same way — so a plain play afterwards would start nothing at
+  // all. What is on screen becomes the claim the next press makes instead
+  restored =
+    event.kind === "stopped"
+      ? { uris: queueSnapshot(), position: $position.get() }
+      : null;
 
   if (event.position_ms !== undefined) $position.set(event.position_ms);
 
